@@ -25,8 +25,10 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Newtonsoft.Json;
 using NodaTime;
+using Python.Runtime;
 using QuantConnect.Orders;
 using QuantConnect.Securities;
+using QuantConnect.Util;
 using Timer = System.Timers.Timer;
 
 namespace QuantConnect
@@ -889,6 +891,26 @@ namespace QuantConnect
         }
 
         /// <summary>
+        /// Get the first occurence of a string between two characters from another string
+        /// </summary>
+        /// <param name="value">The original string</param>
+        /// <param name="left">Left bound of the substring</param>
+        /// <param name="right">Right bound of the substring</param>
+        /// <returns>Substring from original string bounded by the two characters</returns>
+        public static string GetStringBetweenChars(this string value, char left, char right)
+        {
+            var startIndex = 1 + value.IndexOf(left);
+            var length = value.IndexOf(right, startIndex) - startIndex;
+            if (length > 0)
+            {
+                value = value.Substring(startIndex, length);
+                startIndex = 1 + value.IndexOf(left);
+                return value.Substring(startIndex).Trim();
+            }
+            return string.Empty;
+        }
+
+        /// <summary>
         /// Return the first in the series of names, or find the one that matches the configured algirithmTypeName
         /// </summary>
         /// <param name="names">The list of class names</param>
@@ -969,6 +991,110 @@ namespace QuantConnect
             while (collection.TryTake(out item))
             {
                 handler(item);
+            }
+        }
+
+        /// <summary>
+        /// Returns a <see cref="string"/> that represents the current <see cref="PyObject"/>
+        /// </summary>
+        /// <param name="pyObject">The <see cref="PyObject"/> being converted</param>
+        /// <returns>string that represents the current PyObject</returns>
+        public static string ToSafeString(this PyObject pyObject)
+        {
+            using (Py.GIL())
+            {
+                // PyObject objects that have the to_string method, like some pandas objects,
+                // can use this method to convert them into string objects
+                if (pyObject.HasAttr("to_string"))
+                {
+                    return Environment.NewLine + pyObject.InvokeMethod("to_string").ToString();
+                }
+
+                var value = pyObject.ToString();
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    var pythonType = pyObject.GetPythonType();
+                    if (pythonType.GetType() == typeof(PyObject))
+                    {
+                        value = pythonType.ToString();
+                    }
+                    else
+                    {
+                        var type = pythonType.As<Type>();
+                        value = pyObject.AsManagedObject(type).ToString();
+                    }
+                }
+                return value;
+            }
+        }
+
+        /// <summary>
+        /// Tries to convert a <see cref="PyObject"/> into a managed object
+        /// </summary>
+        /// <typeparam name="T">Target type of the resulting managed object</typeparam>
+        /// <param name="pyObject">PyObject to be converted</param>
+        /// <param name="result">Managed object </param>
+        /// <returns>True if successful conversion</returns>
+        public static bool TryConvert<T>(this PyObject pyObject, out T result)
+            where T : class
+        {
+            result = default(T);
+
+            if (pyObject == null)
+            {
+                return true;
+            }
+
+            using (Py.GIL())
+            {
+                try
+                {
+                    result = pyObject.AsManagedObject(typeof(T)) as T;
+                    return true;
+                }
+                catch
+                {
+                    // Do not throw or log the exception.
+                    // Return false as an exception means that the conversion could not be made.
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Performs on-line batching of the specified enumerator, emitting chunks of the requested batch size
+        /// </summary>
+        /// <typeparam name="T">The enumerable item type</typeparam>
+        /// <param name="enumerable">The enumerable to be batched</param>
+        /// <param name="batchSize">The number of items per batch</param>
+        /// <returns>An enumerable of lists</returns>
+        public static IEnumerable<List<T>> BatchBy<T>(this IEnumerable<T> enumerable, int batchSize)
+        {
+            using (var enumerator = enumerable.GetEnumerator())
+            {
+                List<T> list = null;
+                while (enumerator.MoveNext())
+                {
+                    if (list == null)
+                    {
+                        list = new List<T> {enumerator.Current};
+                    }
+                    else if (list.Count < batchSize)
+                    {
+                        list.Add(enumerator.Current);
+                    }
+                    else
+                    {
+                        yield return list;
+                        list = new List<T> {enumerator.Current};
+                    }
+                }
+
+                if (list?.Count > 0)
+                {
+                    yield return list;
+                }
             }
         }
     }

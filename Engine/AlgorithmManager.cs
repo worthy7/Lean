@@ -112,7 +112,9 @@ namespace QuantConnect.Lean.Engine
             {
                 if (CurrentTimeStepElapsed > _timeLoopMaximum)
                 {
-                    return "Algorithm took longer than 10 minutes on a single time loop.";
+                    return ("Algorithm took longer than " +
+                            _timeLoopMaximum.TotalMinutes.ToString() +
+                            " minutes on a single time loop.");
                 }
 
                 return null;
@@ -130,7 +132,7 @@ namespace QuantConnect.Lean.Engine
         /// <param name="results">Result handler object</param>
         /// <param name="realtime">Realtime processing object</param>
         /// <param name="leanManager">ILeanManager implementation that is updated periodically with the IAlgorithm instance</param>
-        /// <param name="alphas">Alpha handler used to process algorithm generated alphas</param>
+        /// <param name="alphas">Alpha handler used to process algorithm generated insights</param>
         /// <param name="token">Cancellation token</param>
         /// <remarks>Modify with caution</remarks>
         public void Run(AlgorithmNodePacket job, IAlgorithm algorithm, IDataFeed feed, ITransactionHandler transactions, IResultHandler results, IRealTimeHandler realtime, ILeanManager leanManager, IAlphaHandler alphas, CancellationToken token)
@@ -147,6 +149,7 @@ namespace QuantConnect.Lean.Engine
             var nextSettlementScanTime = DateTime.MinValue;
 
             var delistings = new List<Delisting>();
+            var splitWarnings = new List<Split>();
 
             //Initialize Properties:
             _algorithmId = job.AlgorithmId;
@@ -200,7 +203,7 @@ namespace QuantConnect.Lean.Engine
 
             //Loop over the queues: get a data collection, then pass them all into relevent methods in the algorithm.
             Log.Trace("AlgorithmManager.Run(): Begin DataStream - Start: " + algorithm.StartDate + " Stop: " + algorithm.EndDate);
-            foreach (var timeSlice in Stream(job, algorithm, feed, results, token))
+            foreach (var timeSlice in Stream(algorithm, feed, results, token))
             {
                 // reset our timer on each loop
                 _currentTimeStepTime = DateTime.UtcNow;
@@ -305,16 +308,6 @@ namespace QuantConnect.Lean.Engine
                     }
                 }
 
-                //On each time step push the real time prices to the cashbook so we can have updated conversion rates
-                foreach (var update in timeSlice.CashBookUpdateData)
-                {
-                    var cash = update.Target;
-                    foreach (var data in update.Data)
-                    {
-                        cash.Update(data);
-                    }
-                }
-
                 //Update the securities properties: first before calling user code to avoid issues with data
                 foreach (var update in timeSlice.SecuritiesUpdateData)
                 {
@@ -328,7 +321,18 @@ namespace QuantConnect.Lean.Engine
                     algorithm.TradeBuilder.SetMarketPrice(security.Symbol, security.Price);
                 }
 
-                // sample alpha charts now that we've updated time/price information but BEFORE we receive new alphas
+                // poke each cash object to update from the recent security data
+                foreach (var kvp in algorithm.Portfolio.CashBook)
+                {
+                    var cash = kvp.Value;
+                    var updateData = cash.ConversionRateSecurity?.GetLastData();
+                    if (updateData != null)
+                    {
+                        cash.Update(updateData);
+                    }
+                }
+
+                // sample alpha charts now that we've updated time/price information but BEFORE we receive new insights
                 alphas.ProcessSynchronousEvents();
 
                 // fire real time events after we've updated based on the new data
@@ -339,6 +343,9 @@ namespace QuantConnect.Lean.Engine
 
                 // process end of day delistings
                 ProcessDelistedSymbols(algorithm, delistings);
+
+                // process split warnings for options
+                ProcessSplitSymbols(algorithm, splitWarnings);
 
                 //Check if the user's signalled Quit: loop over data until day changes.
                 if (algorithm.Status == AlgorithmStatus.Stopped)
@@ -358,7 +365,7 @@ namespace QuantConnect.Lean.Engine
                 {
                     // determine if there are possible margin call orders to be executed
                     bool issueMarginCallWarning;
-                    var marginCallOrders = algorithm.Portfolio.ScanForMarginCall(out issueMarginCallWarning);
+                    var marginCallOrders = algorithm.Portfolio.MarginCallModel.GetMarginCallOrders(out issueMarginCallWarning);
                     if (marginCallOrders.Count != 0)
                     {
                         var executingMarginCall = false;
@@ -441,6 +448,12 @@ namespace QuantConnect.Lean.Engine
                 {
                     try
                     {
+                        // only process split occurred events (ignore warnings)
+                        if (split.Type != SplitType.SplitOccurred)
+                        {
+                            continue;
+                        }
+
                         Log.Debug($"AlgorithmManager.Run(): {algorithm.Time}: Applying Split for {split.Symbol}");
                         algorithm.Portfolio.ApplySplit(split);
                         // apply the split to open orders as well in raw mode, all other modes are split adjusted
@@ -546,6 +559,9 @@ namespace QuantConnect.Lean.Engine
                 // run the delisting logic after firing delisting events
                 HandleDelistedSymbols(algorithm, timeSlice.Slice.Delistings, delistings);
 
+                // run split logic after firing split events
+                HandleSplitSymbols(timeSlice.Slice.Splits, splitWarnings);
+
                 //After we've fired all other events in this second, fire the pricing events:
                 try
                 {
@@ -601,6 +617,9 @@ namespace QuantConnect.Lean.Engine
 
                 // Process any required events of the results handler such as sampling assets, equity, or stock prices.
                 results.ProcessSynchronousEvents();
+
+                // poke the algorithm at the end of each time step
+                algorithm.OnEndOfTimeStep();
 
             } // End of ForEach feed.Bridge.GetConsumingEnumerable
 
@@ -691,7 +710,7 @@ namespace QuantConnect.Lean.Engine
             }
         }
 
-        private IEnumerable<TimeSlice> Stream(AlgorithmNodePacket job, IAlgorithm algorithm, IDataFeed feed, IResultHandler results, CancellationToken cancellationToken)
+        private IEnumerable<TimeSlice> Stream(IAlgorithm algorithm, IDataFeed feed, IResultHandler results, CancellationToken cancellationToken)
         {
             bool setStartTime = false;
             var timeZone = algorithm.TimeZone;
@@ -764,11 +783,32 @@ namespace QuantConnect.Lean.Engine
                             var security = algorithm.Securities[symbol];
                             var data = slice[symbol];
                             var list = new List<BaseData>();
+                            Type dataType;
+                            SubscriptionDataConfig config;
+
                             var ticks = data as List<Tick>;
-                            if (ticks != null) list.AddRange(ticks);
-                            else               list.Add(data);
-                            paired.Add(new DataFeedPacket(security, security.Subscriptions.First(), list));
+                            if (ticks != null)
+                            {
+                                list.AddRange(ticks);
+                                dataType = typeof(Tick);
+                                config = algorithm.SubscriptionManager.Subscriptions.FirstOrDefault(
+                                    subscription => subscription.Symbol == symbol && dataType.IsAssignableFrom(subscription.Type));
+                            }
+                            else
+                            {
+                                list.Add(data);
+                                dataType = data.GetType();
+                                config = security.Subscriptions.FirstOrDefault(subscription => dataType.IsAssignableFrom(subscription.Type));
+                            }
+
+                            if (config == null)
+                            {
+                                throw new Exception($"A data subscription for type '{dataType.Name}' was not found.");
+                            }
+
+                            paired.Add(new DataFeedPacket(security, config, list));
                         }
+
                         timeSlice = TimeSlice.Create(slice.Time.ConvertToUtc(timeZone), timeZone, algorithm.Portfolio.CashBook, paired, SecurityChanges.None);
                     }
                     catch (Exception err)
@@ -940,6 +980,7 @@ namespace QuantConnect.Lean.Engine
                 }
             }
         }
+
         /// <summary>
         /// Performs actual delisting of the contracts in delistings collection
         /// </summary>
@@ -989,6 +1030,88 @@ namespace QuantConnect.Lean.Engine
                 algorithm.Transactions.ProcessRequest(request);
 
                 delistings.RemoveAt(i);
+            }
+        }
+
+        /// <summary>
+        /// Keeps track of split warnings so we can later liquidate option contracts
+        /// </summary>
+        private static void HandleSplitSymbols(Splits newSplits, List<Split> splitWarnings)
+        {
+            foreach (var split in newSplits.Values)
+            {
+                if (split.Type != SplitType.Warning)
+                {
+                    Log.Trace($"AlgorithmManager.Run() Security split occurred: {split}");
+                    continue;
+                }
+
+                Log.Trace($"AlgorithmManager.Run() Security split warning: {split}");
+
+                if (!splitWarnings.Any(x => x.Symbol == split.Symbol && x.Type == SplitType.Warning))
+                {
+                    splitWarnings.Add(split);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Liquidate option contact holdings who's underlying security has split
+        /// </summary>
+        private static void ProcessSplitSymbols(IAlgorithm algorithm, List<Split> splitWarnings)
+        {
+            // NOTE: This method assumes option contracts have the same core trading hours as their underlying contract
+            //       This is a small performance optimization to prevent scanning every contract on every time step,
+            //       instead we scan just the underlyings, thereby reducing the time footprint of this methods by a factor
+            //       of N, the number of derivative subscriptions
+            for (int i = splitWarnings.Count - 1; i >= 0; i--)
+            {
+                var split = splitWarnings[i];
+                var security = algorithm.Securities[split.Symbol];
+
+                var nextMarketClose = security.Exchange.Hours.GetNextMarketClose(security.LocalTime, false);
+
+                // determine the latest possible time we can submit a MOC order
+                var highestResolutionSubscription = security.Subscriptions.OrderBy(sub => sub.Resolution).First();
+                var latestMarketOnCloseTimeRoundedDownByResolution = nextMarketClose.Subtract(MarketOnCloseOrder.DefaultSubmissionTimeBuffer)
+                    .RoundDownInTimeZone(security.Resolution.ToTimeSpan(), security.Exchange.TimeZone, highestResolutionSubscription.DataTimeZone);
+
+                // we don't need to do anyhing until the market closes
+                if (security.LocalTime < latestMarketOnCloseTimeRoundedDownByResolution) continue;
+
+                // fetch all option derivatives of the underlying with holdings (excluding the canonical security)
+                var derivatives = algorithm.Securities.Where(kvp => kvp.Key.HasUnderlying &&
+                    kvp.Key.SecurityType == SecurityType.Option &&
+                    kvp.Key.Underlying == security.Symbol &&
+                    !kvp.Key.Underlying.IsCanonical() &&
+                    kvp.Value.HoldStock
+                );
+
+                foreach (var kvp in derivatives)
+                {
+                    var optionContractSymbol = kvp.Key;
+                    var optionContractSecurity = (Option) kvp.Value;
+
+                    // close any open orders
+                    algorithm.Transactions.CancelOpenOrders(optionContractSymbol, "Canceled due to impending split. Separate MarketOnClose order submitted to liquidate position.");
+
+                    var request = new SubmitOrderRequest(OrderType.MarketOnClose, optionContractSecurity.Type, optionContractSymbol,
+                        -optionContractSecurity.Holdings.Quantity, 0, 0, algorithm.UtcTime,
+                        "Liquidated due to impending split. Option splits are not currently supported."
+                    );
+
+                    // send MOC order to liquidate option contract holdings
+                    algorithm.Transactions.AddOrder(request);
+
+                    // mark option contract as not tradable
+                    optionContractSecurity.IsTradable = false;
+
+                    algorithm.Debug($"MarktetOnClose order submitted for option contract '{optionContractSymbol}' due to impending {split.Symbol.Value} split event. "
+                        + "Option splits are not currently supported.");
+                }
+
+                // remove the warning from out list
+                splitWarnings.RemoveAt(i);
             }
         }
 

@@ -50,9 +50,9 @@ namespace QuantConnect.Algorithm.CSharp
             // Options Resolution: Minute Only.
 
             // set algorithm framework models
-            PortfolioSelection = new ManualPortfolioSelectionModel(QuantConnect.Symbol.Create("SPY", SecurityType.Equity, Market.USA));
-            Alpha = new ConstantAlphaModel(AlphaType.Price, AlphaDirection.Up, TimeSpan.FromMinutes(20), 0.025, null);
-            PortfolioConstruction = new SimplePortfolioConstructionModel();
+            UniverseSelection = new ManualUniverseSelectionModel(QuantConnect.Symbol.Create("SPY", SecurityType.Equity, Market.USA));
+            Alpha = new ConstantAlphaModel(InsightType.Price, InsightDirection.Up, TimeSpan.FromMinutes(20), 0.025, null);
+            PortfolioConstruction = new EqualWeightingPortfolioConstructionModel();
             Execution = new ImmediateExecutionModel();
             RiskManagement = new Algorithm.Framework.Risk.NullRiskManagementModel();
         }

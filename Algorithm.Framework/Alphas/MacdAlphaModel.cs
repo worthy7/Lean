@@ -24,38 +24,47 @@ using QuantConnect.Securities;
 namespace QuantConnect.Algorithm.Framework.Alphas
 {
     /// <summary>
-    /// Defines a custom alpha model that uses MACD crossovers. The alpha line is
-    /// used to generate buy/sell alphas if it's stronger than the bounce threshold.
-    /// If the alpha is within the bounce threshold then a flat price alpha is returned.
+    /// Defines a custom alpha model that uses MACD crossovers. The MACD signal line is
+    /// used to generate up/down insights if it's stronger than the bounce threshold.
+    /// If the MACD signal is within the bounce threshold then a flat price insight is returned.
     /// </summary>
     public class MacdAlphaModel : IAlphaModel
     {
-        private readonly TimeSpan _alphaPeriod;
-        private readonly TimeSpan _consolidatorPeriod;
-        private readonly decimal _bounceThresholdPercent;
+        private readonly int _fastPeriod;
+        private readonly int _slowPeriod;
+        private readonly int _signalPeriod;
+        private readonly MovingAverageType _movingAverageType;
+        private const decimal BounceThresholdPercent = 0.01m;
         private readonly Dictionary<Symbol, SymbolData> _symbolData;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MacdAlphaModel"/> class
         /// </summary>
-        /// <param name="consolidatorPeriod">The period of the MACD's input</param>
-        /// <param name="alphaPeriod">The period assigned to generated alphas</param>
-        /// <param name="bounceThresholdPercent">The percent change required in the alpha to warrant an up/down alpha</param>
-        public MacdAlphaModel(TimeSpan consolidatorPeriod, TimeSpan alphaPeriod, decimal bounceThresholdPercent)
+        /// <param name="fastPeriod">The MACD fast period</param>
+        /// <param name="slowPeriod">The MACD slow period</param>
+        /// <param name="signalPeriod">The smoothing period for the MACD signal</param>
+        /// <param name="movingAverageType">The type of moving average to use in the MACD</param>
+        public MacdAlphaModel(
+            int fastPeriod = 12,
+            int slowPeriod = 26,
+            int signalPeriod = 9,
+            MovingAverageType movingAverageType = MovingAverageType.Exponential
+            )
         {
-            _alphaPeriod = alphaPeriod;
-            _consolidatorPeriod = consolidatorPeriod;
-            _bounceThresholdPercent = Math.Abs(bounceThresholdPercent);
+            _fastPeriod = fastPeriod;
+            _slowPeriod = slowPeriod;
+            _signalPeriod = signalPeriod;
+            _movingAverageType = movingAverageType;
             _symbolData = new Dictionary<Symbol, SymbolData>();
         }
 
         /// <summary>
-        /// Determines a alpha for each security based on it's current MACD alpha
+        /// Determines an insight for each security based on it's current MACD signal
         /// </summary>
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="data">The new data available</param>
-        /// <returns>The new alphas generated</returns>
-        public IEnumerable<Alpha> Update(QCAlgorithmFramework algorithm, Slice data)
+        /// <returns>The new insights generated</returns>
+        public IEnumerable<Insight> Update(QCAlgorithmFramework algorithm, Slice data)
         {
             foreach (var sd in _symbolData.Values)
             {
@@ -64,25 +73,26 @@ namespace QuantConnect.Algorithm.Framework.Alphas
                     continue;
                 }
 
-                var direction = AlphaDirection.Flat;
-                var normalizedAlpha = sd.MACD.Signal / sd.Security.Price;
-                if (normalizedAlpha > _bounceThresholdPercent)
+                var direction = InsightDirection.Flat;
+                var normalizedSignal = sd.MACD.Signal / sd.Security.Price;
+                if (normalizedSignal > BounceThresholdPercent)
                 {
-                    direction = AlphaDirection.Up;
+                    direction = InsightDirection.Up;
                 }
-                else if (normalizedAlpha < -_bounceThresholdPercent)
+                else if (normalizedSignal < -BounceThresholdPercent)
                 {
-                    direction = AlphaDirection.Down;
+                    direction = InsightDirection.Down;
                 }
 
-                var alpha = new Alpha(sd.Security.Symbol, AlphaType.Price, direction, _alphaPeriod);
-                if (alpha.Equals(sd.PreviousAlpha))
+                var insightPeriod = sd.DataResolution.Multiply(_fastPeriod);
+                var insight = new Insight(sd.Security.Symbol, InsightType.Price, direction, insightPeriod);
+                if (insight.Equals(sd.PreviousInsight))
                 {
                     continue;
                 }
 
-                sd.PreviousAlpha = alpha.Clone();
-                yield return alpha;
+                sd.PreviousInsight = insight.Clone();
+                yield return insight;
             }
         }
 
@@ -96,51 +106,38 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         {
             foreach (var added in changes.AddedSecurities)
             {
-                _symbolData.Add(added.Symbol, new SymbolData(algorithm, added, _consolidatorPeriod));
+                _symbolData.Add(added.Symbol, new SymbolData(algorithm, added, _fastPeriod, _slowPeriod, _signalPeriod, _movingAverageType));
             }
+
             foreach (var removed in changes.RemovedSecurities)
             {
                 SymbolData data;
                 if (_symbolData.TryGetValue(removed.Symbol, out data))
                 {
-                    data.CleanUp(algorithm);
-                    _symbolData.Remove(removed.Symbol);
+                    // clean up our consolidator
+                    algorithm.SubscriptionManager.RemoveConsolidator(data.Security.Symbol, data.Consolidator);
                 }
             }
         }
 
         class SymbolData
         {
-            public Alpha PreviousAlpha;
+            public Insight PreviousInsight;
 
             public readonly Security Security;
             public readonly IDataConsolidator Consolidator;
             public readonly MovingAverageConvergenceDivergence MACD;
+            public TimeSpan DataResolution => Security.Resolution.ToTimeSpan();
 
-            public SymbolData(QCAlgorithmFramework algorithm, Security security, TimeSpan period)
+            public SymbolData(QCAlgorithmFramework algorithm, Security security, int fastPeriod, int slowPeriod, int signalPeriod, MovingAverageType movingAverageType)
             {
                 Security = security;
-                Consolidator = algorithm.ResolveConsolidator(security.Symbol, period);
+                Consolidator = algorithm.ResolveConsolidator(security.Symbol, security.Resolution);
                 algorithm.SubscriptionManager.AddConsolidator(security.Symbol, Consolidator);
 
-                MACD = new MovingAverageConvergenceDivergence(12, 26, 9, MovingAverageType.Exponential);
+                MACD = algorithm.MACD(security.Symbol, fastPeriod, slowPeriod, signalPeriod, movingAverageType);
 
-                Consolidator.DataConsolidated += OnDataConsolidated;
-            }
-
-            /// <summary>
-            /// Cleans up the indicator and consolidator
-            /// </summary>
-            /// <param name="algorithm">The algorithm instance</param>
-            public void CleanUp(QCAlgorithmFramework algorithm)
-            {
-                Consolidator.DataConsolidated -= OnDataConsolidated;
-                algorithm.SubscriptionManager.RemoveConsolidator(Security.Symbol, Consolidator);
-            }
-
-            private void OnDataConsolidated(object sender, IBaseData consolidated)
-            {
-                MACD.Update(consolidated.EndTime, consolidated.Value);
+                algorithm.RegisterIndicator(security.Symbol, MACD, Consolidator);
             }
         }
     }

@@ -15,6 +15,8 @@
 */
 
 using System;
+using System.Collections.Generic;
+using QuantConnect.Algorithm.Framework.Portfolio;
 using QuantConnect.Data.UniverseSelection;
 
 namespace QuantConnect.Algorithm.Framework.Risk
@@ -30,8 +32,10 @@ namespace QuantConnect.Algorithm.Framework.Risk
         /// <summary>
         /// Initializes a new instance of the <see cref="MaximumDrawdownPercentPerSecurity"/> class
         /// </summary>
-        /// <param name="maximumDrawdownPercent">The maximum percentage drawdown allowed for any single security holding</param>
-        public MaximumDrawdownPercentPerSecurity(decimal maximumDrawdownPercent)
+        /// <param name="maximumDrawdownPercent">The maximum percentage drawdown allowed for any single security holding, defaults to 5% drawdown per security</param>
+        public MaximumDrawdownPercentPerSecurity(
+            decimal maximumDrawdownPercent = 0.05m
+            )
         {
             _maximumDrawdownPercent = -Math.Abs(maximumDrawdownPercent);
         }
@@ -40,7 +44,7 @@ namespace QuantConnect.Algorithm.Framework.Risk
         /// Manages the algorithm's risk at each time step
         /// </summary>
         /// <param name="algorithm">The algorithm instance</param>
-        public void ManageRisk(QCAlgorithmFramework algorithm)
+        public IEnumerable<IPortfolioTarget> ManageRisk(QCAlgorithmFramework algorithm)
         {
             foreach (var kvp in algorithm.Securities)
             {
@@ -54,7 +58,8 @@ namespace QuantConnect.Algorithm.Framework.Risk
                 var pnl = security.Holdings.UnrealizedProfitPercent;
                 if (pnl < _maximumDrawdownPercent)
                 {
-                    algorithm.Liquidate(security.Symbol);
+                    // liquidate
+                    yield return new PortfolioTarget(security.Symbol, 0);
                 }
             }
         }
