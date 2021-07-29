@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -14,8 +14,9 @@
  *
 */
 
-using System;
+using System.IO;
 using Newtonsoft.Json;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Packets
 {
@@ -43,10 +44,16 @@ namespace QuantConnect.Packets
         public int TickLimit;
 
         /// <summary>
-        /// Ram allocation for this backtest in MB
+        /// Ram allocation for this algorithm in MB
         /// </summary>
-        [JsonProperty(PropertyName = "iRamAllocation")]
+        [JsonProperty(PropertyName = "iMaxRamAllocation")]
         public int RamAllocation;
+
+        /// <summary>
+        /// CPU allocation for this algorithm
+        /// </summary>
+        [JsonProperty(PropertyName = "dMaxCpuAllocation")]
+        public decimal CpuAllocation;
 
         /// <summary>
         /// The user backtesting log limit
@@ -73,6 +80,62 @@ namespace QuantConnect.Packets
         public int BacktestingMaxInsights;
 
         /// <summary>
+        /// Maximimum number of orders we'll allow in a backtest.
+        /// </summary>
+        [JsonProperty(PropertyName = "iBacktestingMaxOrders")]
+        public int BacktestingMaxOrders { get; set; }
+
+        /// <summary>
+        /// Limits the amount of data points per chart series. Applies only for backtesting
+        /// </summary>
+        [JsonProperty(PropertyName = "iMaximumDataPointsPerChartSeries")]
+        public int MaximumDataPointsPerChartSeries;
+
+        /// <summary>
+        /// The amount seconds used for timeout limits
+        /// </summary>
+        [JsonProperty(PropertyName = "iSecondTimeOut")]
+        public int SecondTimeOut;
+
+        /// <summary>
+        /// Sets parameters used for determining the behavior of the leaky bucket algorithm that
+        /// controls how much time is available for an algorithm to use the training feature.
+        /// </summary>
+        [JsonProperty(PropertyName = "oTrainingLimits")]
+        public LeakyBucketControlParameters TrainingLimits;
+
+        /// <summary>
+        /// Limits the total size of storage used by <see cref="IObjectStore"/>
+        /// </summary>
+        [JsonProperty(PropertyName = "storageLimitMB")]
+        public int StorageLimitMB;
+
+        /// <summary>
+        /// Limits the number of files to be held under the <see cref="IObjectStore"/>
+        /// </summary>
+        [JsonProperty(PropertyName = "storageFileCountMB")]
+        public int StorageFileCount;
+
+        /// <summary>
+        /// Holds the permissions for the object store
+        /// </summary>
+        [JsonProperty(PropertyName = "storagePermissions")]
+        public FileAccess StoragePermissions;
+
+        /// <summary>
+        /// The interval over which the <see cref="IObjectStore"/> will persistence the contents of
+        /// the object store
+        /// </summary>
+        [JsonProperty(PropertyName = "persistenceIntervalSeconds")]
+        public int PersistenceIntervalSeconds;
+
+        /// <summary>
+        /// The cost associated with running this job
+        /// </summary>
+        [JsonProperty(PropertyName = "dCreditCost")]
+        public decimal CreditCost;
+
+        /// <summary>
         /// Initializes a new default instance of the <see cref="Controls"/> class
         /// </summary>
         public Controls()
@@ -82,9 +145,19 @@ namespace QuantConnect.Packets
             TickLimit = 30;
             RamAllocation = 1024;
             BacktestLogLimit = 10000;
+            BacktestingMaxOrders = int.MaxValue;
             DailyLogLimit = 3000000;
             RemainingLogAllowance = 10000;
             BacktestingMaxInsights = 10000;
+            MaximumDataPointsPerChartSeries = 4000;
+            SecondTimeOut = 300;
+            StorageLimitMB = 5;
+            StorageFileCount = 100;
+            PersistenceIntervalSeconds = 5;
+            StoragePermissions = FileAccess.ReadWrite;
+
+            // initialize to default leaky bucket values in case they're not specified
+            TrainingLimits = new LeakyBucketControlParameters();
         }
 
         /// <summary>

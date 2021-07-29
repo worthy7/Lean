@@ -1,11 +1,11 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,83 +18,27 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using static QuantConnect.StringExtensions;
 
-namespace QuantConnect 
+namespace QuantConnect
 {
     /// <summary>
     /// Operating systems class for managing anything that is operation system specific.
     /// </summary>
     /// <remarks>Good design should remove the need for this function. Over time it should disappear.</remarks>
-    public static class OS 
+    public static class OS
     {
-        private static PerformanceCounter _ramTotalCounter;
-        private static PerformanceCounter _ramAvailableBytes;
-        private static PerformanceCounter _cpuUsageCounter;
-
         /// <summary>
-        /// Total Physical Ram on the Machine:
+        /// CPU performance counter measures percentage of CPU used in a background thread.
         /// </summary>
-        private static PerformanceCounter RamTotalCounter 
-        {
-            get 
-            {
-                if (_ramTotalCounter == null) 
-                {
-                    if (IsLinux) 
-                    {
-                        _ramTotalCounter = new PerformanceCounter ("Mono Memory", "Total Physical Memory"); 
-                    } 
-                    else 
-                    {
-                        _ramTotalCounter = new PerformanceCounter("Memory", "Available Bytes");
-                    }
-                }
-                return _ramTotalCounter;
-            }
-        }
-
-        /// <summary>
-        /// Memory free on the machine available for use:
-        /// </summary>
-        public static PerformanceCounter RamAvailableBytes 
-        {
-            get 
-            {
-                if (_ramAvailableBytes == null) 
-                {
-                    if (IsLinux) 
-                    { 
-                        _ramAvailableBytes = new PerformanceCounter("Mono Memory", "Allocated Objects");
-                    } 
-                    else 
-                    {
-                        _ramAvailableBytes = new PerformanceCounter("Memory", "Available Bytes");
-                    }
-                }
-                return _ramAvailableBytes;
-            }
-        }
-
-        /// <summary>
-        /// Total CPU usage as a percentage
-        /// </summary>
-        public static PerformanceCounter CpuUsage
-        {
-            get
-            {
-                if (_cpuUsageCounter == null)
-                {
-                    _cpuUsageCounter = new PerformanceCounter("Process", "% Processor Time", 
-                        IsWindows ? Process.GetCurrentProcess().ProcessName : Process.GetCurrentProcess().Id.ToString());
-                }
-                return _cpuUsageCounter;
-            }
-        }
+        public static readonly CpuPerformance CpuPerformanceCounter = new CpuPerformance();
 
         /// <summary>
         /// Global Flag :: Operating System
         /// </summary>
-        public static bool IsLinux 
+        public static bool IsLinux
         {
             get
             {
@@ -106,32 +50,19 @@ namespace QuantConnect
         /// <summary>
         /// Global Flag :: Operating System
         /// </summary>
-        public static bool IsWindows
-        {
-            get 
-            {
-                return !IsLinux;
-            }
-        }
-
+        public static bool IsWindows => !IsLinux;
 
         /// <summary>
         /// Character Separating directories in this OS:
         /// </summary>
-        public static string PathSeparation 
-        {
-            get
-            {
-                return Path.DirectorySeparatorChar.ToString();
-            }
-        }
+        public static string PathSeparation => Path.DirectorySeparatorChar.ToStringInvariant();
 
         /// <summary>
         /// Get the drive space remaining on windows and linux in MB
         /// </summary>
-        public static long DriveSpaceRemaining 
-        { 
-            get 
+        public static long DriveSpaceRemaining
+        {
+            get
             {
                 var d = GetDrive();
                 return d.AvailableFreeSpace / (1024 * 1024);
@@ -149,7 +80,6 @@ namespace QuantConnect
                 return (d.TotalSize - d.AvailableFreeSpace) / (1024 * 1024);
             }
         }
-
 
         /// <summary>
         /// Total space on the drive
@@ -175,44 +105,26 @@ namespace QuantConnect
         }
 
         /// <summary>
-        /// Get the RAM remaining on the machine:
+        /// Gets the amount of private memory allocated for the current process (includes both managed and unmanaged memory).
         /// </summary>
-        public static long ApplicationMemoryUsed 
+        public static long ApplicationMemoryUsed
         {
             get
             {
                 var proc = Process.GetCurrentProcess();
-                return (proc.PrivateMemorySize64 / (1024*1024));
-            }
-        }
-
-        /// <summary>
-        /// Get the RAM remaining on the machine:
-        /// </summary>
-        public static long TotalPhysicalMemory {
-            get {
-                return (long)(RamTotalCounter.NextValue() / (1024*1024));
+                return proc.PrivateMemorySize64 / (1024 * 1024);
             }
         }
 
         /// <summary>
         /// Get the RAM used on the machine:
         /// </summary>
-        public static long TotalPhysicalMemoryUsed
-        {
-            get 
-            {
-                return GC.GetTotalMemory(false) / (1024*1024);
-            }
-        }
+        public static long TotalPhysicalMemoryUsed => GC.GetTotalMemory(false) / (1024 * 1024);
 
         /// <summary>
-        /// Gets the RAM remaining on the machine
+        /// Total CPU usage as a percentage
         /// </summary>
-        private static long FreePhysicalMemory
-        {
-            get { return TotalPhysicalMemory - TotalPhysicalMemoryUsed; }
-        }
+        public static decimal CpuUsage => (decimal)CpuPerformanceCounter.CpuPercentage;
 
         /// <summary>
         /// Gets the statistics of the machine, including CPU% and RAM
@@ -221,14 +133,73 @@ namespace QuantConnect
         {
             return new Dictionary<string, string>
             {
-                {"CPU Usage",            CpuUsage.NextValue().ToString("0.0") + "%"},
-                {"Used RAM (MB)",        TotalPhysicalMemoryUsed.ToString()},
-                {"Total RAM (MB)",        TotalPhysicalMemory.ToString()},
-                {"Used Disk Space (MB)", DriveSpaceUsed.ToString() },
-                {"Total Disk Space (MB)", DriveTotalSpace.ToString() },
+                { "CPU Usage", Invariant($"{CpuUsage:0.0}%")},
+                { "Used RAM (MB)", TotalPhysicalMemoryUsed.ToStringInvariant() },
+                { "Total RAM (MB)", "" },
                 { "Hostname", Environment.MachineName },
-                {"LEAN Version", "v" + Globals.Version}
+                { "LEAN Version", $"v{Globals.Version}"}
             };
         }
-    } // End OS Class
-} // End QC Namespace
+
+        /// <summary>
+        /// Calculates the CPU usage in a background thread
+        /// </summary>
+        public class CpuPerformance : IDisposable
+        {
+            private readonly CancellationTokenSource _cancellationToken;
+            private readonly Task _cpuPerformanceTask;
+
+            /// <summary>
+            /// CPU usage as a percentage (0-100)
+            /// </summary>
+            /// <remarks>Float to avoid any atomicity issues</remarks>
+            public float CpuPercentage { get; private set; }
+
+            /// <summary>
+            /// Initializes an instance of the class and starts a new thread.
+            /// </summary>
+            public CpuPerformance()
+            {
+                _cancellationToken = new CancellationTokenSource();
+                _cpuPerformanceTask = Task.Factory.StartNew(CalculateCpu, _cancellationToken.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            }
+
+            /// <summary>
+            /// Event loop that calculates the CPU percentage the process is using
+            /// </summary>
+            private void CalculateCpu()
+            {
+                var process = Process.GetCurrentProcess();
+                while (!_cancellationToken.IsCancellationRequested)
+                {
+                    var startTime = DateTime.UtcNow;
+                    var startCpuUsage = process.TotalProcessorTime;
+
+                    if (_cancellationToken.Token.WaitHandle.WaitOne(1000))
+                    {
+                        return;
+                    }
+
+                    var endTime = DateTime.UtcNow;
+                    var endCpuUsage = process.TotalProcessorTime;
+
+                    var cpuUsedMs = (endCpuUsage - startCpuUsage).TotalMilliseconds;
+                    var totalMsPassed = (endTime - startTime).TotalMilliseconds;
+                    var cpuUsageTotal = cpuUsedMs / totalMsPassed;
+
+                    CpuPercentage = (float)cpuUsageTotal * 100;
+                }
+            }
+
+            /// <summary>
+            /// Stops the execution of the task
+            /// </summary>
+            public void Dispose()
+            {
+                _cancellationToken.Cancel();
+                _cpuPerformanceTask.Wait();
+                _cpuPerformanceTask.Dispose();
+            }
+        }
+    }
+}

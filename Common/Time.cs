@@ -15,10 +15,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Globalization;
 using NodaTime;
 using QuantConnect.Logging;
 using QuantConnect.Securities;
+using static QuantConnect.StringExtensions;
 
 namespace QuantConnect
 {
@@ -36,6 +38,11 @@ namespace QuantConnect
         public static readonly DateTime EndOfTime = new DateTime(2050, 12, 31);
 
         /// <summary>
+        /// Provides a time span based on <see cref="EndOfTime"/>
+        /// </summary>
+        public static TimeSpan EndOfTimeTimeSpan = new TimeSpan(EndOfTime.Ticks);
+
+        /// <summary>
         /// Provides a value far enough in the past that can be used as a lower bound on dates
         /// </summary>
         /// <value>
@@ -48,6 +55,12 @@ namespace QuantConnect
         /// we can still do math against it without checking everywhere for <see cref="TimeSpan.MaxValue"/>
         /// </summary>
         public static readonly TimeSpan MaxTimeSpan = TimeSpan.FromDays(1000*365);
+
+        /// <summary>
+        /// One Year TimeSpan Period Constant
+        /// </summary>
+        /// <remarks>365 days</remarks>
+        public static readonly TimeSpan OneYear = TimeSpan.FromDays(365);
 
         /// <summary>
         /// One Day TimeSpan Period Constant
@@ -135,7 +148,7 @@ namespace QuantConnect
             }
             catch (Exception err)
             {
-                Log.Error(err, "UnixTimeStamp: " + unixTimeStamp);
+                Log.Error(err, Invariant($"UnixTimeStamp: {unixTimeStamp}"));
                 time = DateTime.Now;
             }
             return time;
@@ -146,17 +159,41 @@ namespace QuantConnect
         /// </summary>
         /// <param name="unixTimeStamp">Double unix timestamp (Time since Midnight Jan 1 1970) in milliseconds</param>
         /// <returns>C# date timeobject</returns>
-        public static DateTime UnixMillisecondTimeStampToDateTime(double unixTimeStamp)
+        public static DateTime UnixMillisecondTimeStampToDateTime(decimal unixTimeStamp)
         {
             DateTime time;
             try
             {
-                var ticks = unixTimeStamp * TimeSpan.TicksPerMillisecond;
+                // Any residual decimal numbers that remain are nanoseconds from [0, 100) nanoseconds.
+                // If we cast to (long), only the integer component of the decimal is taken, and can
+                // potentially result in look-ahead bias in increments of 100 nanoseconds, i.e. 1 DateTime tick.
+                var ticks = Math.Ceiling(unixTimeStamp * TimeSpan.TicksPerMillisecond);
                 time = EpochTime.AddTicks((long)ticks);
             }
             catch (Exception err)
             {
-                Log.Error(err, "UnixTimeStamp: " + unixTimeStamp);
+                Log.Error(err, Invariant($"UnixTimeStamp: {unixTimeStamp}"));
+                time = DateTime.Now;
+            }
+            return time;
+        }
+
+        /// <summary>
+        /// Create a C# DateTime from a UnixTimestamp
+        /// </summary>
+        /// <param name="unixTimeStamp">Int64 unix timestamp (Time since Midnight Jan 1 1970) in nanoseconds</param>
+        /// <returns>C# date timeobject</returns>
+        public static DateTime UnixNanosecondTimeStampToDateTime(long unixTimeStamp)
+        {
+            DateTime time;
+            try
+            {
+                var ticks = unixTimeStamp / 100;
+                time = EpochTime.AddTicks(ticks);
+            }
+            catch (Exception err)
+            {
+                Log.Error(err, Invariant($"UnixTimeStamp: {unixTimeStamp}"));
                 time = DateTime.Now;
             }
             return time;
@@ -176,7 +213,45 @@ namespace QuantConnect
             }
             catch (Exception err)
             {
-                Log.Error(err, time.ToString("o"));
+                Log.Error(err, Invariant($"{time:o}"));
+            }
+            return timestamp;
+        }
+
+        /// <summary>
+        /// Convert a Datetime to Unix Timestamp
+        /// </summary>
+        /// <param name="time">C# datetime object</param>
+        /// <returns>Double unix timestamp</returns>
+        public static double DateTimeToUnixTimeStampMilliseconds(DateTime time)
+        {
+            double timestamp = 0;
+            try
+            {
+                timestamp = (time - new DateTime(1970, 1, 1, 0, 0, 0, 0)).TotalMilliseconds;
+            }
+            catch (Exception err)
+            {
+                Log.Error(err, Invariant($"{time:o}"));
+            }
+            return timestamp;
+        }
+
+        /// <summary>
+        /// Convert a Datetime to Unix Timestamp
+        /// </summary>
+        /// <param name="time">C# datetime object</param>
+        /// <returns>Int64 unix timestamp</returns>
+        public static long DateTimeToUnixTimeStampNanoseconds(DateTime time)
+        {
+            long timestamp = 0;
+            try
+            {
+                timestamp = (time - new DateTime(1970, 1, 1, 0, 0, 0, 0)).Ticks * 100;
+            }
+            catch (Exception err)
+            {
+                Log.Error(err, Invariant($"{time:o}"));
             }
             return timestamp;
         }
@@ -252,11 +327,27 @@ namespace QuantConnect
                 {
                     return date;
                 }
-                if (DateTime.TryParseExact(dateToParse.Substring(0, 19), DateFormat.JsonFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                if (DateTime.TryParseExact(dateToParse, DateFormat.TwelveCharacter, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+                if (DateTime.TryParseExact(dateToParse.SafeSubstring(0, 19), DateFormat.JsonFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+                if (DateTime.TryParseExact(dateToParse, DateFormat.USShort, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+                if (DateTime.TryParseExact(dateToParse, DateFormat.USShortDateOnly, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
                 {
                     return date;
                 }
                 if (DateTime.TryParseExact(dateToParse, DateFormat.US, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+                if (DateTime.TryParseExact(dateToParse, DateFormat.USDateOnly, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
                 {
                     return date;
                 }
@@ -273,6 +364,33 @@ namespace QuantConnect
             return DateTime.Now;
         }
 
+        /// <summary>
+        /// Parse a standard YY MM DD date into a DateTime. Attempt common date formats
+        /// </summary>
+        /// <param name="dateToParse">String date time to parse</param>
+        /// <returns>Date time</returns>
+        public static DateTime ParseFIXUtcTimestamp(string dateToParse)
+        {
+            try
+            {
+                //First try the exact options:
+                DateTime date;
+                if (DateTime.TryParseExact(dateToParse, DateFormat.FIX, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+                if (DateTime.TryParseExact(dateToParse, DateFormat.FIXWithMillisecond, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                {
+                    return date;
+                }
+            }
+            catch (Exception err)
+            {
+                Log.Error(err);
+            }
+
+            return DateTime.UtcNow;
+        }
 
         /// <summary>
         /// Define an enumerable date range and return each date as a datetime object in the date range
@@ -360,20 +478,21 @@ namespace QuantConnect
                 var currentInTimeZone = currentExchangeTime.ConvertTo(exchange.TimeZone, timeZone);
                 var currentInTimeZoneEod = currentInTimeZone.Date.AddDays(1);
 
+                var currentExchangeTimeEod = currentInTimeZoneEod.ConvertTo(timeZone, exchange.TimeZone);
+
                 // don't pass the end
-                if (currentInTimeZoneEod.ConvertTo(timeZone, exchange.TimeZone) > thru)
+                if (currentExchangeTimeEod > thru)
                 {
-                    currentInTimeZoneEod = thru.ConvertTo(exchange.TimeZone, timeZone);
+                    currentExchangeTimeEod = thru;
                 }
 
                 // perform market open checks in the exchange time zone
-                var currentExchangeTimeEod = currentInTimeZoneEod.ConvertTo(timeZone, exchange.TimeZone);
                 if (exchange.IsOpen(currentExchangeTime, currentExchangeTimeEod, includeExtendedMarketHours))
                 {
                     yield return currentInTimeZone.Date;
                 }
 
-                currentExchangeTime = currentInTimeZoneEod.ConvertTo(timeZone, exchange.TimeZone);
+                currentExchangeTime = currentExchangeTimeEod;
             }
         }
 
@@ -389,7 +508,7 @@ namespace QuantConnect
             {
                 foreach (var security in securities)
                 {
-                    if (security.Exchange.IsOpenDuringBar(day.Date, day.Date.AddDays(1), security.IsExtendedMarketHours)) return true;
+                    if (security.Exchange.DateIsOpen(day.Date)) return true;
                 }
             }
             catch (Exception err)
@@ -410,7 +529,7 @@ namespace QuantConnect
         public static int TradeableDates(ICollection<Security> securities, DateTime start, DateTime finish)
         {
             var count = 0;
-            Log.Trace("Time.TradeableDates(): Security Count: " + securities.Count);
+            Log.Trace(Invariant($"Time.TradeableDates(): Security Count: {securities.Count}"));
             try
             {
                 foreach (var day in EachDay(start, finish))
@@ -431,25 +550,27 @@ namespace QuantConnect
         /// <summary>
         /// Determines the start time required to produce the requested number of bars and the given size
         /// </summary>
-        /// <param name="exchange">The exchange used to test for market open hours</param>
+        /// <param name="exchangeHours">The exchange hours used to test for market open hours</param>
         /// <param name="end">The end time of the last bar over the requested period</param>
         /// <param name="barSize">The length of each bar</param>
         /// <param name="barCount">The number of bars requested</param>
         /// <param name="extendedMarketHours">True to allow extended market hours bars, otherwise false for only normal market hours</param>
+        /// <param name="dataTimeZone">Timezone for this data</param>
         /// <returns>The start time that would provide the specified number of bars ending at the specified end time, rounded down by the requested bar size</returns>
-        public static DateTime GetStartTimeForTradeBars(SecurityExchangeHours exchange, DateTime end, TimeSpan barSize, int barCount, bool extendedMarketHours)
+        public static DateTime GetStartTimeForTradeBars(SecurityExchangeHours exchangeHours, DateTime end, TimeSpan barSize, int barCount, bool extendedMarketHours, DateTimeZone dataTimeZone)
         {
             if (barSize <= TimeSpan.Zero)
             {
                 throw new ArgumentException("barSize must be greater than TimeSpan.Zero", nameof(barSize));
             }
 
-            var current = end.RoundDown(barSize);
+            // need to round down in data timezone because data is stored in this time zone
+            var current = end.RoundDownInTimeZone(barSize, exchangeHours.TimeZone, dataTimeZone);
             for (int i = 0; i < barCount;)
             {
                 var previous = current;
                 current = current - barSize;
-                if (exchange.IsOpen(current, previous, extendedMarketHours))
+                if (exchangeHours.IsOpen(current, previous, extendedMarketHours))
                 {
                     i++;
                 }
@@ -461,13 +582,13 @@ namespace QuantConnect
         /// Determines the end time at which the requested number of bars of the given  will have elapsed.
         /// NOTE: The start time is not discretized by barSize units like is done in <see cref="GetStartTimeForTradeBars"/>
         /// </summary>
-        /// <param name="exchange">The exchange used to test for market open hours</param>
+        /// <param name="exchangeHours">The exchange hours used to test for market open hours</param>
         /// <param name="start">The end time of the last bar over the requested period</param>
         /// <param name="barSize">The length of each bar</param>
         /// <param name="barCount">The number of bars requested</param>
         /// <param name="extendedMarketHours">True to allow extended market hours bars, otherwise false for only normal market hours</param>
         /// <returns>The start time that would provide the specified number of bars ending at the specified end time, rounded down by the requested bar size</returns>
-        public static DateTime GetEndTimeForTradeBars(SecurityExchangeHours exchange, DateTime start, TimeSpan barSize, int barCount, bool extendedMarketHours)
+        public static DateTime GetEndTimeForTradeBars(SecurityExchangeHours exchangeHours, DateTime start, TimeSpan barSize, int barCount, bool extendedMarketHours)
         {
             if (barSize <= TimeSpan.Zero)
             {
@@ -475,16 +596,75 @@ namespace QuantConnect
             }
 
             var current = start;
+            if (barSize == OneDay)
+            {
+                for (int i = 0; i < barCount;)
+                {
+                    current = current + OneDay;
+                    if (exchangeHours.IsDateOpen(current))
+                    {
+                        i++;
+                    }
+                }
+
+                return current;
+            }
+
             for (int i = 0; i < barCount;)
             {
                 var previous = current;
                 current = current + barSize;
-                if (exchange.IsOpen(previous, current, extendedMarketHours))
+                if (exchangeHours.IsOpen(previous, current, extendedMarketHours))
                 {
                     i++;
                 }
             }
             return current;
+        }
+
+        /// <summary>
+        /// Gets the number of trade bars of the specified <paramref name="barSize"/> that fit between the <paramref name="start"/> and <paramref name="end"/>
+        /// </summary>
+        /// <param name="exchangeHours">The exchange used to test for market open hours</param>
+        /// <param name="start">The start time of the interval in the exchange time zone</param>
+        /// <param name="end">The end time of the interval in the exchange time zone</param>
+        /// <param name="barSize">The step size used to count number of bars between start and end</param>
+        /// <returns>The number of bars of the specified size between start and end times</returns>
+        public static int GetNumberOfTradeBarsInInterval(SecurityExchangeHours exchangeHours, DateTime start, DateTime end, TimeSpan barSize)
+        {
+            if (barSize <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("barSize must be greater than TimeSpan.Zero", nameof(barSize));
+            }
+
+            var count = 0;
+            var current = start;
+            if (barSize == OneDay)
+            {
+                while (current < end)
+                {
+                    if (exchangeHours.IsDateOpen(current))
+                    {
+                        count++;
+                    }
+
+                    current = current + OneDay;
+                }
+
+                return count;
+            }
+
+            while (current < end)
+            {
+                var previous = current;
+                current = current + barSize;
+                if (exchangeHours.IsOpen(previous, current, false))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -523,6 +703,16 @@ namespace QuantConnect
             }
 
             return stepSize.TotalSeconds / period.TotalSeconds;
+        }
+
+        /// <summary>
+        /// Gets the absolute value of the specified time span
+        /// </summary>
+        /// <param name="timeSpan">Time span whose absolute value we seek</param>
+        /// <returns>The absolute value of the specified time span</returns>
+        public static TimeSpan Abs(this TimeSpan timeSpan)
+        {
+            return TimeSpan.FromTicks(Math.Abs(timeSpan.Ticks));
         }
     }
 }

@@ -19,21 +19,17 @@ using Python.Runtime;
 using QuantConnect.Exceptions;
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace QuantConnect.Tests.Common.Exceptions
 {
-    [TestFixture, Ignore]
+    [TestFixture]
     public class PythonExceptionInterpreterTests
     {
         private PythonException _pythonException;
 
-        [TestFixtureSetUp]
+        [OneTimeSetUp]
         public void Setup()
         {
-            var pythonPath = new DirectoryInfo("RegressionAlgorithms");
-            Environment.SetEnvironmentVariable("PYTHONPATH", pythonPath.FullName);
-
             using (Py.GIL())
             {
                 var module = Py.Import("Test_PythonExceptionInterpreter");

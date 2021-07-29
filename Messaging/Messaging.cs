@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -15,12 +15,16 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using QuantConnect.Configuration;
 using QuantConnect.Interfaces;
 using QuantConnect.Logging;
 using QuantConnect.Notifications;
+using QuantConnect.Orders.Serialization;
 using QuantConnect.Packets;
+using QuantConnect.Util;
 
 namespace QuantConnect.Messaging
 {
@@ -29,10 +33,10 @@ namespace QuantConnect.Messaging
     /// </summary>
     public class Messaging : IMessagingHandler
     {
-        // used to aid in generating regression tests via Cosole.WriteLine(...)
-        private static readonly TextWriter Console = System.Console.Out;
+        private static readonly bool UpdateRegressionStatistics = Config.GetBool("regression-update-statistics", false);
 
         private AlgorithmNodePacket _job;
+        private OrderEventJsonConverter _orderEventJsonConverter;
 
         /// <summary>
         /// This implementation ignores the <seealso cref="HasSubscribers"/> flag and
@@ -58,6 +62,7 @@ namespace QuantConnect.Messaging
         public void SetAuthentication(AlgorithmNodePacket job)
         {
             _job = job;
+            _orderEventJsonConverter = new OrderEventJsonConverter(job.AlgorithmId);
         }
 
         /// <summary>
@@ -108,34 +113,27 @@ namespace QuantConnect.Messaging
 
                     if (result.Progress == 1)
                     {
-                        // uncomment these code traces to help write regression tests
-                        //Console.WriteLine("new Dictionary<string, string>");
-                        //Console.WriteLine("\t\t\t{");
-
                         // inject alpha statistics into backtesting result statistics
                         // this is primarily so we can easily regression test these values
-                        var alphaStatistics = result.Results.AlphaRuntimeStatistics?.ToDictionary().ToList() ?? new List<KeyValuePair<string, string>>();
-                        alphaStatistics.ForEach(kvp => result.Results.Statistics.Add(kvp));
-
-                        foreach (var pair in result.Results.Statistics)
+                        var alphaStatistics = result.Results.AlphaRuntimeStatistics?.ToDictionary() ?? Enumerable.Empty<KeyValuePair<string, string>>();
+                        foreach (var kvp in alphaStatistics)
                         {
-                            Log.Trace($"STATISTICS:: {pair.Key} {pair.Value}");
-                            //Console.WriteLine("\t\t\t\t{{\"{0}\",\"{1}\"}},", pair.Key, pair.Value);
+                            result.Results.Statistics.Add(kvp);
                         }
-                        //Console.WriteLine("\t\t\t};");
 
-                        //foreach (var pair in statisticsResults.RollingPerformances)
-                        //{
-                        //    Log.Trace("ROLLINGSTATS:: " + pair.Key + " SharpeRatio: " + Math.Round(pair.Value.PortfolioStatistics.SharpeRatio, 3));
-                        //}
+                        var orderHash = result.Results.Orders.GetHash();
+                        result.Results.Statistics.Add("OrderListHash", orderHash);
+
+                        if (UpdateRegressionStatistics && _job.Language == Language.CSharp)
+                        {
+                            UpdateRegressionStatisticsInSourceFile(result);
+                        }
+
+                        var statisticsStr = $"{Environment.NewLine}" +
+                            $"{string.Join(Environment.NewLine,result.Results.Statistics.Select(x => $"STATISTICS:: {x.Key} {x.Value}"))}";
+                        Log.Trace(statisticsStr);
                     }
                     break;
-            }
-
-
-            if (StreamingApi.IsEnabled)
-            {
-                StreamingApi.Transmit(_job.UserId, _job.Channel, packet);
             }
         }
 
@@ -147,12 +145,76 @@ namespace QuantConnect.Messaging
             var type = notification.GetType();
             if (type == typeof (NotificationEmail)
              || type == typeof (NotificationWeb)
-             || type == typeof (NotificationSms))
+             || type == typeof (NotificationSms)
+             || type == typeof(NotificationTelegram))
             {
                 Log.Error("Messaging.SendNotification(): Send not implemented for notification of type: " + type.Name);
                 return;
             }
             notification.Send();
+        }
+
+        private void UpdateRegressionStatisticsInSourceFile(BacktestResultPacket result)
+        {
+            if (!result.Results.Statistics.Any())
+            {
+                Log.Error("Messaging.UpdateRegressionStatisticsInSourceFile(): No statistics generated. Skipping update.");
+                return;
+            }
+
+            var algorithmSource = $"../../../Algorithm.CSharp/{_job.AlgorithmId}.cs";
+            var file = File.ReadAllLines(algorithmSource).ToList().GetEnumerator();
+            var lines = new List<string>();
+            while (file.MoveNext())
+            {
+                var line = file.Current;
+                if (line == null)
+                {
+                    continue;
+                }
+
+                if (line.Contains("public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>")
+                    || line.Contains("public override Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>")
+                    || line.Contains("public virtual Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>"))
+                {
+                    lines.Add(line);
+                    lines.Add("        {");
+
+                    foreach (var pair in result.Results.Statistics)
+                    {
+                        lines.Add($"            {{\"{pair.Key}\", \"{pair.Value}\"}},");
+                    }
+
+                    // remove trailing comma
+                    var lastLine = lines[lines.Count - 1];
+                    lines[lines.Count - 1] = lastLine.Substring(0, lastLine.Length - 1);
+
+                    // now we skip existing expected statistics in file
+                    while (file.MoveNext())
+                    {
+                        line = file.Current;
+                        if (line != null && line.Contains("};"))
+                        {
+                            lines.Add(line);
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    lines.Add(line);
+                }
+            }
+
+            file.DisposeSafely();
+            File.WriteAllLines(algorithmSource, lines);
+        }
+
+        /// <summary>
+        /// Dispose of any resources
+        /// </summary>
+        public void Dispose()
+        {
         }
     }
 }

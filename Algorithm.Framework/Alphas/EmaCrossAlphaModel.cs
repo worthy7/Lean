@@ -13,7 +13,6 @@
  * limitations under the License.
 */
 
-using System;
 using System.Collections.Generic;
 using QuantConnect.Data;
 using QuantConnect.Data.UniverseSelection;
@@ -25,10 +24,11 @@ namespace QuantConnect.Algorithm.Framework.Alphas
     /// <summary>
     /// Alpha model that uses an EMA cross to create insights
     /// </summary>
-    public class EmaCrossAlphaModel : IAlphaModel
+    public class EmaCrossAlphaModel : AlphaModel
     {
         private readonly int _fastPeriod;
         private readonly int _slowPeriod;
+        private readonly Resolution _resolution;
         private readonly int _predictionInterval;
         private readonly Dictionary<Symbol, SymbolData> _symbolDataBySymbol;
 
@@ -37,15 +37,19 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// </summary>
         /// <param name="fastPeriod">The fast EMA period</param>
         /// <param name="slowPeriod">The slow EMA period</param>
+        /// <param name="resolution">The resolution of data sent into the EMA indicators</param>
         public EmaCrossAlphaModel(
             int fastPeriod = 12,
-            int slowPeriod = 26
+            int slowPeriod = 26,
+            Resolution resolution = Resolution.Daily
             )
         {
             _fastPeriod = fastPeriod;
             _slowPeriod = slowPeriod;
+            _resolution = resolution;
             _predictionInterval = fastPeriod;
             _symbolDataBySymbol = new Dictionary<Symbol, SymbolData>();
+            Name = $"{nameof(EmaCrossAlphaModel)}({fastPeriod},{slowPeriod},{resolution})";
         }
 
         /// <summary>
@@ -55,26 +59,26 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="data">The new data available</param>
         /// <returns>The new insights generated</returns>
-        public IEnumerable<Insight> Update(QCAlgorithmFramework algorithm, Slice data)
+        public override IEnumerable<Insight> Update(QCAlgorithm algorithm, Slice data)
         {
             var insights = new List<Insight>();
             foreach (var symbolData in _symbolDataBySymbol.Values)
             {
                 if (symbolData.Fast.IsReady && symbolData.Slow.IsReady)
                 {
-                    var insightPeriod = symbolData.DataResolution.Multiply(_predictionInterval);
+                    var insightPeriod = _resolution.ToTimeSpan().Multiply(_predictionInterval);
                     if (symbolData.FastIsOverSlow)
                     {
                         if (symbolData.Slow > symbolData.Fast)
                         {
-                            insights.Add(new Insight(symbolData.Symbol, InsightType.Price, InsightDirection.Down, insightPeriod));
+                            insights.Add(Insight.Price(symbolData.Symbol, insightPeriod, InsightDirection.Down));
                         }
                     }
                     else if (symbolData.SlowIsOverFast)
                     {
                         if (symbolData.Fast > symbolData.Slow)
                         {
-                            insights.Add(new Insight(symbolData.Symbol, InsightType.Price, InsightDirection.Up, insightPeriod));
+                            insights.Add(Insight.Price(symbolData.Symbol, insightPeriod, InsightDirection.Up));
                         }
                     }
                 }
@@ -90,7 +94,7 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// </summary>
         /// <param name="algorithm">The algorithm instance that experienced the change in securities</param>
         /// <param name="changes">The security additions and removals from the algorithm</param>
-        public void OnSecuritiesChanged(QCAlgorithmFramework algorithm, SecurityChanges changes)
+        public override void OnSecuritiesChanged(QCAlgorithm algorithm, SecurityChanges changes)
         {
             foreach (var added in changes.AddedSecurities)
             {
@@ -98,8 +102,8 @@ namespace QuantConnect.Algorithm.Framework.Alphas
                 if (!_symbolDataBySymbol.TryGetValue(added.Symbol, out symbolData))
                 {
                     // create fast/slow EMAs
-                    var fast = algorithm.EMA(added.Symbol, _fastPeriod);
-                    var slow = algorithm.EMA(added.Symbol, _slowPeriod);
+                    var fast = algorithm.EMA(added.Symbol, _fastPeriod, _resolution);
+                    var slow = algorithm.EMA(added.Symbol, _slowPeriod, _resolution);
                     _symbolDataBySymbol[added.Symbol] = new SymbolData
                     {
                         Security = added,
@@ -125,7 +129,6 @@ namespace QuantConnect.Algorithm.Framework.Alphas
             public Symbol Symbol => Security.Symbol;
             public ExponentialMovingAverage Fast { get; set; }
             public ExponentialMovingAverage Slow { get; set; }
-            public TimeSpan DataResolution => Security.Resolution.ToTimeSpan();
 
             /// <summary>
             /// True if the fast is above the slow, otherwise false.

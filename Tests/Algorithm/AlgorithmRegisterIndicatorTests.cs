@@ -1,11 +1,11 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +16,14 @@
 using NUnit.Framework;
 using Python.Runtime;
 using QuantConnect.Algorithm;
-using QuantConnect.Data;
 using QuantConnect.Data.Market;
 using QuantConnect.Indicators;
 using QuantConnect.Tests.Indicators;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using QuantConnect.Tests.Engine.DataFeeds;
+using QuantConnect.Util;
 
 namespace QuantConnect.Tests.Algorithm
 {
@@ -37,6 +38,7 @@ namespace QuantConnect.Tests.Algorithm
         public void Setup()
         {
             _algorithm = new QCAlgorithm();
+            _algorithm.SubscriptionManager.SetDataManager(new DataManagerStub(_algorithm));
             _spy = _algorithm.AddEquity("SPY").Symbol;
 
             _indicatorTestsTypes =
@@ -79,13 +81,33 @@ namespace QuantConnect.Tests.Algorithm
                 {
                     throw new NotSupportedException($"RegistersIndicatorProperlyPython(): Unsupported indicator data type: {indicatorTest.GetType()}");
                 }
-                var actual = _algorithm.SubscriptionManager.Subscriptions.FirstOrDefault().Consolidators.Count;
+                var actual = _algorithm.SubscriptionManager.Subscriptions
+                    .Single(s => s.TickType == LeanData.GetCommonTickType(SecurityType.Equity))
+                    .Consolidators.Count;
                 Assert.AreEqual(expected, actual);
             }
         }
 
-        [Test, Ignore]
-        public void RegistersIndicatorProperlyPython()
+
+        private static TestCaseData[] IndicatorNameParameters => new[]
+        {
+            new TestCaseData(Symbols.SPY, "TEST", Resolution.Tick, "TEST(SPY_tick)"),
+            new TestCaseData(Symbols.SPY, "TEST", Resolution.Second, "TEST(SPY_sec)"),
+            new TestCaseData(Symbols.SPY, "TEST", Resolution.Minute, "TEST(SPY_min)"),
+            new TestCaseData(Symbols.SPY, "TEST", Resolution.Hour, "TEST(SPY_hr)"),
+            new TestCaseData(Symbols.SPY, "TEST", Resolution.Daily, "TEST(SPY_day)"),
+            new TestCaseData(Symbol.Empty, "TEST", Resolution.Minute, "TEST(min)"),
+            new TestCaseData(Symbol.None, "TEST", Resolution.Minute, "TEST(min)")
+        };
+
+        [Test, TestCaseSource(nameof(IndicatorNameParameters))]
+        public void CreateIndicatorName(Symbol symbol, string baseName, Resolution resolution, string expectation)
+        {
+            Assert.AreEqual(expectation, _algorithm.CreateIndicatorName(symbol, baseName, resolution));
+        }
+
+        [Test]
+        public void PlotAndRegistersIndicatorProperlyPython()
         {
             var expected = 0;
             PyObject indicator;
@@ -110,38 +132,79 @@ namespace QuantConnect.Tests.Algorithm
                     throw new NotSupportedException($"RegistersIndicatorProperlyPython(): Unsupported indicator data type: {indicatorTest.GetType()}");
                 }
                 Assert.DoesNotThrow(() => _algorithm.RegisterIndicator(_spy, indicator, Resolution.Minute));
+                Assert.DoesNotThrow(() => _algorithm.Plot(_spy.Value, indicator));
                 expected++;
 
-                var actual = _algorithm.SubscriptionManager.Subscriptions.FirstOrDefault().Consolidators.Count;
+                var actual = _algorithm.SubscriptionManager.Subscriptions
+                    .Single(s => s.TickType == LeanData.GetCommonTickType(SecurityType.Equity))
+                    .Consolidators.Count;
                 Assert.AreEqual(expected, actual);
             }
         }
 
-        [Test, Ignore]
+        [Test]
         public void RegisterPythonCustomIndicatorProperly()
         {
+            const string code = @"
+class GoodCustomIndicator :
+    def __init__(self):
+        self.IsReady = True
+        self.Value = 0
+    def Update(self, input):
+        self.Value = input.Value
+        return True
+class BadCustomIndicator:
+    def __init__(self):
+        self.IsReady = True
+        self.Value = 0
+    def Updat(self, input):
+        self.Value = input.Value
+        return True";
+
             using (Py.GIL())
             {
-                var module = PythonEngine.ModuleFromString(Guid.NewGuid().ToString(),
-                    "class GoodCustomIndicator:\n" +
-                    "    def __init__(self):\n" +
-                    "        pass\n" +
-                    "    def Update(self, input):\n" +
-                    "        return input\n" +
-                    "class BadCustomIndicator:\n" +
-                    "    def __init__(self):\n" +
-                    "        pass\n" +
-                    "    def Updat(self, input):\n" +
-                    "        return input");
+                var module = PythonEngine.ModuleFromString(Guid.NewGuid().ToString(), code);
 
                 var goodIndicator = module.GetAttr("GoodCustomIndicator").Invoke();
                 Assert.DoesNotThrow(() => _algorithm.RegisterIndicator(_spy, goodIndicator, Resolution.Minute));
 
-                var actual = _algorithm.SubscriptionManager.Subscriptions.FirstOrDefault().Consolidators.Count;
+                var actual = _algorithm.SubscriptionManager.Subscriptions
+                    .Single(s => s.TickType == LeanData.GetCommonTickType(SecurityType.Equity))
+                    .Consolidators.Count;
                 Assert.AreEqual(1, actual);
 
                 var badIndicator = module.GetAttr("BadCustomIndicator").Invoke();
-                Assert.Throws<ArgumentException>(() => _algorithm.RegisterIndicator(_spy, badIndicator, Resolution.Minute));
+                Assert.Throws<NotImplementedException>(() => _algorithm.RegisterIndicator(_spy, badIndicator, Resolution.Minute));
+            }
+        }
+
+        [Test]
+        public void RegistersIndicatorProperlyPythonScript()
+        {
+            const string code = @"
+from AlgorithmImports import *
+
+AddReference('QuantConnect.Lean.Engine')
+from QuantConnect.Lean.Engine.DataFeeds import *
+
+algo = QCAlgorithm()
+
+marketHoursDatabase = MarketHoursDatabase.FromDataFolder()
+symbolPropertiesDatabase = SymbolPropertiesDatabase.FromDataFolder()
+securityService =  SecurityService(algo.Portfolio.CashBook, marketHoursDatabase, symbolPropertiesDatabase, algo, RegisteredSecurityDataTypesProvider.Null, SecurityCacheProvider(algo.Portfolio))
+algo.Securities.SetSecurityService(securityService)
+dataPermissionManager = DataPermissionManager()
+dataManager = DataManager(None, UniverseSelection(algo, securityService, dataPermissionManager, None), algo, algo.TimeKeeper, marketHoursDatabase, False, RegisteredSecurityDataTypesProvider.Null, dataPermissionManager)
+algo.SubscriptionManager.SetDataManager(dataManager)
+
+
+forex = algo.AddForex('EURUSD', Resolution.Daily)
+indicator = IchimokuKinkoHyo('EURUSD', 9, 26, 26, 52, 26, 26)
+algo.RegisterIndicator(forex.Symbol, indicator, Resolution.Daily)";
+
+            using (Py.GIL())
+            {
+                Assert.DoesNotThrow(() => PythonEngine.ModuleFromString("RegistersIndicatorProperlyPythonScript", code));
             }
         }
     }

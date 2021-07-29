@@ -14,7 +14,6 @@
 */
 
 using System.Collections.Generic;
-using QuantConnect.Securities;
 
 namespace QuantConnect
 {
@@ -24,234 +23,29 @@ namespace QuantConnect
     public static class Currencies
     {
         /// <summary>
-        /// Gets the listing of crypto pairs used for currency conversion rates
+        /// USD currency string
         /// </summary>
-        /// <remarks>
-        /// It must include all currency pairs needed to resolve quote currencies in <see cref="Cash.EnsureCurrencyDataFeed"/>
-        /// </remarks>
-        public static readonly IReadOnlyList<string> CryptoCurrencyPairs = new List<string>
-        {
-            "BTCUSD",
-            "BCHUSD",
-            "LTCUSD",
-            "ETHUSD",
-            "BTCEUR",
-            "BCHEUR",
-            "LTCEUR",
-            "ETHEUR"
-        };
+        public static string USD = "USD";
 
         /// <summary>
-        /// Gets the listing of cfds used for currency conversion rates
+        /// EUR currency string
         /// </summary>
-        /// <remarks>
-        /// It must include all currency pairs needed to resolve quote currencies in <see cref="Cash.EnsureCurrencyDataFeed"/>
-        /// </remarks>
-        public static readonly IReadOnlyList<string> CfdCurrencyPairs = new List<string>
-        {
-            "XAUUSD",
-            "XAGUSD"
-        };
+        public static string EUR = "EUR";
 
         /// <summary>
-        /// Gets the listing of currently supported currency pairs.
+        /// GBP currency string
         /// </summary>
-        /// <remarks>
-        /// This listing should be in sync with the data available at: https://www.quantconnect.com/data/FOREX#forex
-        /// It must include all currency pairs needed to resolve quote currencies in <see cref="Cash.EnsureCurrencyDataFeed"/>
-        /// </remarks>
-        public static readonly IReadOnlyList<string> CurrencyPairs = new List<string>
-        {
-            // these are listed at the top to ensure they get selected first when resolving
-            // currency data feeds. the case that showcases the issue is we would select jpyusd
-            // instead of usdjpy, even though jpyusd is much less common
-            "AUDJPY",
-            "AUDUSD",
-            "EURCHF",
-            "EURGBP",
-            "EURJPY",
-            "EURUSD",
-            "GBPAUD",
-            "GBPJPY",
-            "GBPUSD",
-            "NZDUSD",
-            "USDCAD",
-            "USDCHF",
-            "USDJPY",
-            "USDHKD",
-            "USDSGD",
+        public static string GBP = "GBP";
 
+        /// <summary>
+        /// INR currency string
+        /// </summary>
+        public static string INR = "INR";
 
-            "AUDCAD",
-            "AUDCHF",
-            "AUDCNY",
-            "AUDCZK",
-            "AUDDKK",
-            "AUDHKD",
-            "AUDHUF",
-            "AUDINR",
-            "AUDMXN",
-            "AUDNOK",
-            "AUDNZD",
-            "AUDPLN",
-            "AUDSAR",
-            "AUDSEK",
-            "AUDSGD",
-            "AUDTHB",
-            "AUDTRY",
-            "AUDTWD",
-            "AUDZAR",
-            "CADAUD",
-            "CADCHF",
-            "CADCNY",
-            "CADCZK",
-            "CADDKK",
-            "CADHKD",
-            "CADHUF",
-            "CADINR",
-            "CADJPY",
-            "CADMXN",
-            "CADNOK",
-            "CADNZD",
-            "CADPLN",
-            "CADSAR",
-            "CADSEK",
-            "CADSGD",
-            "CADTHB",
-            "CADTRY",
-            "CADTWD",
-            "CADZAR",
-            "CHFAUD",
-            "CHFCAD",
-            "CHFCNY",
-            "CHFCZK",
-            "CHFDKK",
-            "CHFHKD",
-            "CHFHUF",
-            "CHFINR",
-            "CHFJPY",
-            "CHFMXN",
-            "CHFNOK",
-            "CHFNZD",
-            "CHFPLN",
-            "CHFSAR",
-            "CHFSEK",
-            "CHFSGD",
-            "CHFTHB",
-            "CHFTRY",
-            "CHFTWD",
-            "CHFUSD",
-            "CHFZAR",
-            "CNYJPY",
-            "CZKJPY",
-            "DKKJPY",
-            "EURAUD",
-            "EURCAD",
-            "EURCNY",
-            "EURCZK",
-            "EURDKK",
-            "EURHKD",
-            "EURHUF",
-            "EURINR",
-            "EURMXN",
-            "EURNOK",
-            "EURNZD",
-            "EURPLN",
-            "EURSAR",
-            "EURSEK",
-            "EURSGD",
-            "EURTHB",
-            "EURTRY",
-            "EURTWD",
-            "EURZAR",
-            "GBPCAD",
-            "GBPCHF",
-            "GBPCNY",
-            "GBPCZK",
-            "GBPDKK",
-            "GBPHKD",
-            "GBPHUF",
-            "GBPINR",
-            "GBPMXN",
-            "GBPNOK",
-            "GBPNZD",
-            "GBPPLN",
-            "GBPSAR",
-            "GBPSEK",
-            "GBPSGD",
-            "GBPTHB",
-            "GBPTRY",
-            "GBPTWD",
-            "GBPZAR",
-            "HKDCNY",
-            "HKDCZK",
-            "HKDDKK",
-            "HKDHUF",
-            "HKDINR",
-            "HKDJPY",
-            "HKDMXN",
-            "HKDNOK",
-            "HKDPLN",
-            "HKDSAR",
-            "HKDSEK",
-            "HKDSGD",
-            "HKDTHB",
-            "HKDTRY",
-            "HKDTWD",
-            "HKDZAR",
-            "INRJPY",
-            "JPYHUF",
-            "JPYUSD",
-            "MXNJPY",
-            "NOKJPY",
-            "NZDCAD",
-            "NZDCHF",
-            "NZDHKD",
-            "NZDJPY",
-            "NZDSGD",
-            "PLNJPY",
-            "SARJPY",
-            "SEKJPY",
-            "SGDCHF",
-            "SGDCNY",
-            "SGDCZK",
-            "SGDDKK",
-            "SGDHKD",
-            "SGDHUF",
-            "SGDINR",
-            "SGDJPY",
-            "SGDMXN",
-            "SGDNOK",
-            "SGDPLN",
-            "SGDSAR",
-            "SGDSEK",
-            "SGDTHB",
-            "SGDTRY",
-            "SGDTWD",
-            "SGDZAR",
-            "THBJPY",
-            "TRYJPY",
-            "TWDJPY",
-            "USDAUD",
-            "USDCNH",
-            "USDCNY",
-            "USDCZK",
-            "USDDKK",
-            "USDEUR",
-            "USDGBP",
-            "USDHUF",
-            "USDINR",
-            "USDMXN",
-            "USDNOK",
-            "USDPLN",
-            "USDSAR",
-            "USDSEK",
-            "USDTHB",
-            "USDTRY",
-            "USDTWD",
-            "USDZAR",
-            "ZARJPY"
-        };
+        /// <summary>
+        /// Null currency used when a real one is not required
+        /// </summary>
+        public const string NullCurrency = "QCC";
 
         /// <summary>
         /// A mapping of currency codes to their display symbols
@@ -292,7 +86,34 @@ namespace QuantConnect
             {"BTC", "฿"},
             {"BCH", "฿"},
             {"LTC", "Ł"},
-            {"ETH", "Ξ"}
+            {"ETH", "Ξ"},
+
+            {"EOS", "EOS"},
+            {"XRP", "XRP"},
+            {"XLM", "XLM"},
+            {"ETC", "ETC"},
+            {"ZRX", "ZRX"},
+            {"USDT", "USDT"}
+        };
+
+        /// <summary>
+        /// Define some StableCoins that don't have direct pairs for base currencies in our SPDB
+        /// This is because some CryptoExchanges do not define direct pairs with the stablecoins they offer.
+        ///
+        /// We use this to allow setting cash amounts for these stablecoins without needing a conversion
+        /// security.
+        /// </summary>
+        public static HashSet<Symbol> StableCoinsWithoutPairs = new HashSet<Symbol>
+        {
+            // Binance StableCoins Missing 1-1 Pairs
+            Symbol.Create("USDCUSD", SecurityType.Crypto, Market.Binance), // USD -> USDC
+            Symbol.Create("BGBPGBP", SecurityType.Crypto, Market.Binance), // GBP -> BGBP
+
+            // Coinbase StableCoins Missing 1-1 Pairs
+            Symbol.Create("USDCUSD", SecurityType.Crypto, Market.GDAX), // USD -> USDC
+
+            // Bitfinex StableCoins Missing 1-1 Pairs
+            Symbol.Create("EURSEUR", SecurityType.Crypto, Market.Bitfinex), // EUR -> EURS
         };
 
         /// <summary>

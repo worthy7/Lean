@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -36,12 +36,20 @@ namespace QuantConnect.Tests.Engine.DataFeeds.Enumerators.Factories
         {
             var symbol = Symbols.AAPL;
             var config = new SubscriptionDataConfig(typeof(TradeBar), symbol, Resolution.Daily, TimeZones.NewYork, TimeZones.NewYork, false, false, false, false, TickType.Trade, false);
-            var security = new Security(SecurityExchangeHours.AlwaysOpen(TimeZones.NewYork), config, new Cash(CashBook.AccountCurrency, 0, 1), SymbolProperties.GetDefault(CashBook.AccountCurrency));
+            var security = new Security(
+                SecurityExchangeHours.AlwaysOpen(TimeZones.NewYork),
+                config,
+                new Cash(Currencies.USD, 0, 1),
+                SymbolProperties.GetDefault(Currencies.USD),
+                ErrorCurrencyConverter.Instance,
+                RegisteredSecurityDataTypesProvider.Null,
+                new SecurityCache()
+            );
 
-            var mapFileProvider = new LocalDiskMapFileProvider();
-            var factorFileProvider = new LocalDiskFactorFileProvider(mapFileProvider);
+            var mapFileProvider = TestGlobals.MapFileProvider;
+            var fileProvider = TestGlobals.DataProvider;
+            var factorFileProvider = TestGlobals.FactorFileProvider;
             var mapFileResolver = mapFileProvider.Get(security.Symbol.ID.Market);
-            var fileProvider = new DefaultDataProvider();
 
             var factory = new BaseDataSubscriptionEnumeratorFactory(false, mapFileResolver, factorFileProvider);
 

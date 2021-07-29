@@ -47,8 +47,13 @@ namespace QuantConnect.Algorithm.CSharp
             SetCash(100000);
 
             //Define the symbol and "type" of our generic data:
-            AddData<DollarRupee>("USDINR");
-            AddData<Nifty>("NIFTY");
+            var rupee = AddData<DollarRupee>("USDINR", Resolution.Daily).Symbol;
+            var nifty = AddData<Nifty>("NIFTY", Resolution.Daily).Symbol;
+
+            EnableAutomaticIndicatorWarmUp = true;
+            var rupeeSma = SMA(rupee, 20);
+            var niftySma = SMA(rupee, 20);
+            Log($"SMA - Is ready? USDINR: {rupeeSma.IsReady} NIFTY: {niftySma.IsReady}");
         }
 
         /// <summary>
@@ -56,24 +61,23 @@ namespace QuantConnect.Algorithm.CSharp
         /// "Nifty" type below and fired into this event handler.
         /// </summary>
         /// <param name="data">One(1) Nifty Object, streamed into our algorithm synchronised in time with our other data streams</param>
-        public void OnData(DollarRupee data)
+        public override void OnData(Slice data)
         {
-            _today = new CorrelationPair(data.Time) {CurrencyPrice = Convert.ToDouble(data.Close)};
-        }
+            if (data.ContainsKey("USDINR"))
+            {
+                _today = new CorrelationPair(Time) { CurrencyPrice = Convert.ToDouble(data["USDINR"].Close) };
+            }
 
-        /// <summary>
-        /// OnData is the primary entry point for youm algorithm. New data is piped into your algorithm here
-        /// via TradeBars objects.
-        /// </summary>
-        /// <param name="data">TradeBars IDictionary object</param>
-        public void OnData(Nifty data)
-        {
+            if (!data.ContainsKey("NIFTY"))
+            {
+                return;
+            }
+
             try
             {
-                var quantity = (int)(Portfolio.TotalPortfolioValue * 0.9m / data.Close);
 
-                _today.NiftyPrice = Convert.ToDouble(data.Close);
-                if (_today.Date == data.Time)
+                _today.NiftyPrice = Convert.ToDouble(data["NIFTY"].Close);
+                if (_today.Date == data["NIFTY"].Time)
                 {
                     _prices.Add(_today);
 
@@ -84,8 +88,10 @@ namespace QuantConnect.Algorithm.CSharp
                 }
 
                 //Strategy
+                var quantity = (int)(Portfolio.MarginRemaining * 0.9m / data["NIFTY"].Close);
                 var highestNifty = (from pair in _prices select pair.NiftyPrice).Max();
                 var lowestNifty = (from pair in _prices select pair.NiftyPrice).Min();
+
                 if (Time.DayOfWeek == DayOfWeek.Wednesday) //prices.Count >= minimumCorrelationHistory &&
                 {
                     //List<double> niftyPrices = (from pair in prices select pair.NiftyPrice).ToList();
@@ -93,15 +99,15 @@ namespace QuantConnect.Algorithm.CSharp
                     //double correlation = Correlation.Pearson(niftyPrices, currencyPrices);
                     //double niftyFraction = (correlation)/2;
 
-                    if (Convert.ToDouble(data.Open) >= highestNifty)
+                    if (Convert.ToDouble(data["NIFTY"].Open) >= highestNifty)
                     {
                         var code = Order("NIFTY", quantity - Portfolio["NIFTY"].Quantity);
-                        Debug("LONG " + code + " Time: " + Time.ToShortDateString() + " Quantity: " + quantity + " Portfolio:" + Portfolio["NIFTY"].Quantity + " Nifty: " + data.Close + " Buying Power: " + Portfolio.TotalPortfolioValue);
+                        Debug("LONG " + code + " Time: " + Time.ToShortDateString() + " Quantity: " + quantity + " Portfolio:" + Portfolio["NIFTY"].Quantity + " Nifty: " + data["NIFTY"].Close + " Buying Power: " + Portfolio.TotalPortfolioValue);
                     }
-                    else if (Convert.ToDouble(data.Open) <= lowestNifty)
+                    else if (Convert.ToDouble(data["NIFTY"].Open) <= lowestNifty)
                     {
                         var code = Order("NIFTY", -quantity - Portfolio["NIFTY"].Quantity);
-                        Debug("SHORT " + code + " Time: " + Time.ToShortDateString() + " Quantity: " + quantity + " Portfolio:" + Portfolio["NIFTY"].Quantity + " Nifty: " + data.Close + " Buying Power: " + Portfolio.TotalPortfolioValue);
+                        Debug("SHORT " + code + " Time: " + Time.ToShortDateString() + " Quantity: " + quantity + " Portfolio:" + Portfolio["NIFTY"].Quantity + " Nifty: " + data["NIFTY"].Close + " Buying Power: " + Portfolio.TotalPortfolioValue);
                     }
                 }
             }
@@ -115,7 +121,7 @@ namespace QuantConnect.Algorithm.CSharp
         /// End of a trading day event handler. This method is called at the end of the algorithm day (or multiple times if trading multiple assets).
         /// </summary>
         /// <remarks>Method is called 10 minutes before closing to allow user to close out position.</remarks>
-        public override void OnEndOfDay()
+        public override void OnEndOfDay(Symbol symbol)
         {
             Plot("Nifty Closing Price", _today.NiftyPrice);
         }
@@ -175,6 +181,7 @@ namespace QuantConnect.Algorithm.CSharp
                 //2011-09-13  7792.9    7799.9     7722.65    7748.7    116534670    6107.78
                 var data = line.Split(',');
                 index.Time = DateTime.Parse(data[0], CultureInfo.InvariantCulture);
+                index.EndTime = index.Time.AddDays(1);
                 index.Open = Convert.ToDecimal(data[1], CultureInfo.InvariantCulture);
                 index.High = Convert.ToDecimal(data[2], CultureInfo.InvariantCulture);
                 index.Low = Convert.ToDecimal(data[3], CultureInfo.InvariantCulture);
@@ -241,6 +248,7 @@ namespace QuantConnect.Algorithm.CSharp
             {
                 var data = line.Split(',');
                 currency.Time = DateTime.Parse(data[0], CultureInfo.InvariantCulture);
+                currency.EndTime = currency.Time.AddDays(1);
                 currency.Close = Convert.ToDecimal(data[1], CultureInfo.InvariantCulture);
                 currency.Symbol = "USDINR";
                 currency.Value = currency.Close;

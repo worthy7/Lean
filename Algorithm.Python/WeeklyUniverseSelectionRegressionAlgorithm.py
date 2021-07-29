@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,15 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System.Core")
-AddReference("QuantConnect.Common")
-AddReference("QuantConnect.Algorithm")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import QCAlgorithm
-from QuantConnect.Data.UniverseSelection import *
+from AlgorithmImports import *
 
 ### <summary>
 ### Regression algorithm to test universe additions and removals with open positions
@@ -38,7 +30,7 @@ class WeeklyUniverseSelectionRegressionAlgorithm(QCAlgorithm):
         self.AddUniverse("my-custom-universe", lambda dt: ["IBM"] if dt.day % 7 == 0 else [])
 
     def OnData(self, slice):
-        if self.changes == None: return
+        if self.changes is None: return
 
         # liquidate removed securities
         for security in self.changes.RemovedSecurities:

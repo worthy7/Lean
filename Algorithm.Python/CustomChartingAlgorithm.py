@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,18 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-
-import numpy as np
-import decimal as d
-from datetime import timedelta, datetime
+from AlgorithmImports import *
 
 ### <summary>
 ### Algorithm demonstrating custom charting support in QuantConnect.
@@ -50,9 +39,10 @@ class CustomChartingAlgorithm(QCAlgorithm):
         stockPlot.AddSeries(Series("Price", SeriesType.Line, 0))
         self.AddChart(stockPlot)
 
+        # On the Average Cross Chart we want 2 series, slow MA and fast MA
         avgCross = Chart("Average Cross")
-        avgCross.AddSeries(Series("FastMA", SeriesType.Line, 1))
-        avgCross.AddSeries(Series("SlowMA", SeriesType.Line, 1))
+        avgCross.AddSeries(Series("FastMA", SeriesType.Line, 0))
+        avgCross.AddSeries(Series("SlowMA", SeriesType.Line, 0))
         self.AddChart(avgCross)
 
         self.fastMA = 0
@@ -67,13 +57,14 @@ class CustomChartingAlgorithm(QCAlgorithm):
         self.lastPrice = slice["SPY"].Close
         if self.fastMA == 0: self.fastMA = self.lastPrice
         if self.slowMA == 0: self.slowMA = self.lastPrice
-        self.fastMA = (d.Decimal(0.01) * self.lastPrice) + (d.Decimal(0.99) * self.fastMA)
-        self.slowMA = (d.Decimal(0.001) * self.lastPrice) + (d.Decimal(0.999) * self.slowMA)
+        self.fastMA = (0.01 * self.lastPrice) + (0.99 * self.fastMA)
+        self.slowMA = (0.001 * self.lastPrice) + (0.999 * self.slowMA)
+
 
         if self.Time > self.resample:
             self.resample = self.Time  + self.resamplePeriod
-            self.Plot("Average Cross", "FastMA", self.fastMA);
-            self.Plot("Average Cross", "SlowMA", self.slowMA);
+            self.Plot("Average Cross", "FastMA", self.fastMA)
+            self.Plot("Average Cross", "SlowMA", self.slowMA)
 
         # On the 5th days when not invested buy:
         if not self.Portfolio.Invested and self.Time.day % 13 == 0:
@@ -83,6 +74,6 @@ class CustomChartingAlgorithm(QCAlgorithm):
             self.Plot("Trade Plot", "Sell", self.lastPrice)
             self.Liquidate()
 
-    def OnEndOfDay(self):
+    def OnEndOfDay(self, symbol):
        #Log the end of day prices:
        self.Plot("Trade Plot", "Price", self.lastPrice)

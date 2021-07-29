@@ -1,11 +1,11 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,80 +13,103 @@
  * limitations under the License.
 */
 
-using System;
 using NUnit.Framework;
 using QuantConnect.Algorithm;
 using QuantConnect.Brokerages.InteractiveBrokers;
-using QuantConnect.Configuration;
+using QuantConnect.Data.Auxiliary;
 using QuantConnect.Interfaces;
+using QuantConnect.Lean.Engine.DataFeeds;
 using QuantConnect.Securities;
 
 namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
 {
-    [TestFixture, Ignore("These tests require the IBController and IB TraderWorkstation to be installed.")]
+    [Ignore("These tests require the IBGateway to be installed.")]
     public class InteractiveBrokersForexOrderTests : BrokerageTests
     {
-        // set to true to disable launch of gateway from tests
-        private const bool _manualGatewayControl = false;
-        private static bool _gatewayLaunched;
-     
-        [TestFixtureSetUp]
-        public void InitializeBrokerage()
+        protected override Symbol Symbol => Symbols.USDJPY;
+        protected override SecurityType SecurityType => SecurityType.Forex;
+
+        /// <summary>
+        /// Provides the data required to test each order type in various cases
+        /// </summary>
+        private static TestCaseData[] OrderParameters()
         {
+            return new[]
+            {
+                new TestCaseData(new MarketOrderTestParameters(Symbols.USDJPY)).SetName("MarketOrder"),
+                new TestCaseData(new LimitOrderTestParameters(Symbols.USDJPY, 10000m, 0.01m)).SetName("LimitOrder"),
+                new TestCaseData(new StopMarketOrderTestParameters(Symbols.USDJPY, 10000m, 0.01m)).SetName("StopMarketOrder"),
+                new TestCaseData(new StopLimitOrderTestParameters(Symbols.USDJPY, 10000m, 0.01m)).SetName("StopLimitOrder"),
+                new TestCaseData(new LimitIfTouchedOrderTestParameters(Symbols.USDJPY, 10000m, 0.01m)).SetName("LimitIfTouchedOrder")
+            };
         }
 
-        [TestFixtureTearDown]
-        public void DisposeBrokerage()
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void CancelOrders(OrderTestParameters parameters)
         {
-            InteractiveBrokersGatewayRunner.Stop();
+            base.CancelOrders(parameters);
         }
 
-        protected override Symbol Symbol
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void LongFromZero(OrderTestParameters parameters)
         {
-            get { return Symbols.USDJPY; }
+            base.LongFromZero(parameters);
         }
 
-        protected override SecurityType SecurityType
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void CloseFromLong(OrderTestParameters parameters)
         {
-            get { return SecurityType.Forex; }
+            base.CloseFromLong(parameters);
         }
 
-        protected override decimal HighPrice
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void ShortFromZero(OrderTestParameters parameters)
         {
-            get { return 10000m; }
+            base.ShortFromZero(parameters);
         }
 
-        protected override decimal LowPrice
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void CloseFromShort(OrderTestParameters parameters)
         {
-            get { return 0.01m; }
+            base.CloseFromShort(parameters);
+        }
+
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void ShortFromLong(OrderTestParameters parameters)
+        {
+            base.ShortFromLong(parameters);
+        }
+
+        [Test, TestCaseSource(nameof(OrderParameters))]
+        public override void LongFromShort(OrderTestParameters parameters)
+        {
+            base.LongFromShort(parameters);
+        }
+
+        /// <summary>
+        /// Returns wether or not the brokers order methods implementation are async
+        /// </summary>
+        protected override bool IsAsync()
+        {
+            return true;
         }
 
         protected override decimal GetAskPrice(Symbol symbol)
         {
-            throw new NotImplementedException();
+            return 1m;
         }
 
         protected override IBrokerage CreateBrokerage(IOrderProvider orderProvider, ISecurityProvider securityProvider)
         {
-            if (!_manualGatewayControl && !_gatewayLaunched)
-            {
-                _gatewayLaunched = true;
-                InteractiveBrokersGatewayRunner.Start(Config.Get("ib-controller-dir"),
-                    Config.Get("ib-tws-dir"),
-                    Config.Get("ib-user-name"),
-                    Config.Get("ib-password"),
-                    Config.Get("ib-trading-mode"),
-                    Config.GetBool("ib-use-tws")
-                    );
-            }
-            return new InteractiveBrokersBrokerage(new QCAlgorithm(), orderProvider, securityProvider);
+            return new InteractiveBrokersBrokerage(new QCAlgorithm(), orderProvider, securityProvider, new AggregationManager(), TestGlobals.MapFileProvider);
         }
 
         protected override void DisposeBrokerage(IBrokerage brokerage)
         {
-            if (!_manualGatewayControl && brokerage != null)
+            if (brokerage != null)
             {
                 brokerage.Disconnect();
+                brokerage.Dispose();
             }
         }
     }

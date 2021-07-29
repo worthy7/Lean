@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -12,8 +12,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-
-using QuantConnect.Orders;
 
 namespace QuantConnect.Securities
 {
@@ -40,37 +38,62 @@ namespace QuantConnect.Securities
         void SetLeverage(Security security, decimal leverage);
 
         /// <summary>
-        /// Check if there is sufficient buying power to execute this order.
+        /// Gets the margin currently allocated to the specified holding
         /// </summary>
-        /// <param name="portfolio">The algorithm's portfolio</param>
-        /// <param name="security">The security to be traded</param>
-        /// <param name="order">The order to be checked</param>
-        /// <returns>Returns buying power information for an order</returns>
-        HasSufficientBuyingPowerForOrderResult HasSufficientBuyingPowerForOrder(SecurityPortfolioManager portfolio, Security security, Order order);
+        /// <param name="parameters">An object containing the security and holdings quantity/cost/value</param>
+        /// <returns>The maintenance margin required for the provided holdings quantity/cost/value</returns>
+        MaintenanceMargin GetMaintenanceMargin(MaintenanceMarginParameters parameters);
 
         /// <summary>
-        /// Get the maximum market order quantity to obtain a position with a given value in account currency
+        /// The margin that must be held in order to increase the position by the provided quantity
         /// </summary>
-        /// <param name="portfolio">The algorithm's portfolio</param>
-        /// <param name="security">The security to be traded</param>
-        /// <param name="targetPortfolioValue">The value in account currency that we want our holding to have</param>
+        /// <param name="parameters">An object containing the security and quantity</param>
+        /// <returns>The initial margin required for the provided security and quantity</returns>
+        InitialMargin GetInitialMarginRequirement(InitialMarginParameters parameters);
+
+        /// <summary>
+        /// Gets the total margin required to execute the specified order in units of the account currency including fees
+        /// </summary>
+        /// <param name="parameters">An object containing the portfolio, the security and the order</param>
+        /// <returns>The total margin in terms of the currency quoted in the order</returns>
+        InitialMargin GetInitialMarginRequiredForOrder(InitialMarginRequiredForOrderParameters parameters);
+
+        /// <summary>
+        /// Check if there is sufficient buying power to execute this order.
+        /// </summary>
+        /// <param name="parameters">An object containing the portfolio, the security and the order</param>
+        /// <returns>Returns buying power information for an order</returns>
+        HasSufficientBuyingPowerForOrderResult HasSufficientBuyingPowerForOrder(HasSufficientBuyingPowerForOrderParameters parameters);
+
+        /// <summary>
+        /// Get the maximum market order quantity to obtain a position with a given buying power percentage.
+        /// Will not take into account free buying power.
+        /// </summary>
+        /// <param name="parameters">An object containing the portfolio, the security and the target signed buying power percentage</param>
         /// <returns>Returns the maximum allowed market order quantity and if zero, also the reason</returns>
-        GetMaximumOrderQuantityForTargetValueResult GetMaximumOrderQuantityForTargetValue(SecurityPortfolioManager portfolio, Security security, decimal targetPortfolioValue);
+        GetMaximumOrderQuantityResult GetMaximumOrderQuantityForTargetBuyingPower(GetMaximumOrderQuantityForTargetBuyingPowerParameters parameters);
+
+        /// <summary>
+        /// Get the maximum market order quantity to obtain a delta in the buying power used by a security.
+        /// The deltas sign defines the position side to apply it to, positive long, negative short.
+        /// </summary>
+        /// <param name="parameters">An object containing the portfolio, the security and the delta buying power</param>
+        /// <returns>Returns the maximum allowed market order quantity and if zero, also the reason</returns>
+        /// <remarks>Used by the margin call model to reduce the position by a delta percent.</remarks>
+        GetMaximumOrderQuantityResult GetMaximumOrderQuantityForDeltaBuyingPower(GetMaximumOrderQuantityForDeltaBuyingPowerParameters parameters);
 
         /// <summary>
         /// Gets the amount of buying power reserved to maintain the specified position
         /// </summary>
-        /// <param name="security">The security for the position</param>
+        /// <param name="parameters">A parameters object containing the security</param>
         /// <returns>The reserved buying power in account currency</returns>
-        decimal GetReservedBuyingPowerForPosition(Security security);
+        ReservedBuyingPowerForPosition GetReservedBuyingPowerForPosition(ReservedBuyingPowerForPositionParameters parameters);
 
         /// <summary>
         /// Gets the buying power available for a trade
         /// </summary>
-        /// <param name="portfolio">The algorithm's portfolio</param>
-        /// <param name="security">The security to be traded</param>
-        /// <param name="direction">The direction of the trade</param>
+        /// <param name="parameters">A parameters object containing the algorithm's portfolio, security, and order direction</param>
         /// <returns>The buying power available for the trade</returns>
-        decimal GetBuyingPower(SecurityPortfolioManager portfolio, Security security, OrderDirection direction);
+        BuyingPower GetBuyingPower(BuyingPowerParameters parameters);
     }
 }

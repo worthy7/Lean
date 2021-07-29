@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,16 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System.Core")
-AddReference("QuantConnect.Common")
-AddReference("QuantConnect.Algorithm")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import QCAlgorithm
-from QuantConnect.Data.UniverseSelection import *
-from datetime import datetime
+from AlgorithmImports import *
 
 ### <summary>
 ### Demonstration of how to define a universe as a combination of use the coarse fundamental data and fine fundamental data
@@ -32,8 +23,8 @@ from datetime import datetime
 class CoarseFineFundamentalRegressionAlgorithm(QCAlgorithm):
 
     def Initialize(self):
-        self.SetStartDate(2014,4,1)    #Set Start Date
-        self.SetEndDate(2014,4,30)     #Set End Date
+        self.SetStartDate(2014,3,24)   #Set Start Date
+        self.SetEndDate(2014,4,7)      #Set End Date
         self.SetCash(50000)            #Set Strategy Cash
 
         self.UniverseSettings.Resolution = Resolution.Daily
@@ -47,26 +38,26 @@ class CoarseFineFundamentalRegressionAlgorithm(QCAlgorithm):
         self.numberOfSymbolsFine = 2
 
     # return a list of three fixed symbol objects
-    def CoarseSelectionFunction(self, coarse):        
+    def CoarseSelectionFunction(self, coarse):
         tickers = [ "GOOG", "BAC", "SPY" ]
 
-        if self.Time < datetime(2014, 4, 5):
+        if self.Time.date() < date(2014, 4, 1):
             tickers = [ "AAPL", "AIG", "IBM" ]
-        
-        return [ Symbol.Create(x, SecurityType.Equity, Market.USA) for x in tickers ]
-        
 
-    # sort the data by P/E ratio and take the top 'NumberOfSymbolsFine'
+        return [ Symbol.Create(x, SecurityType.Equity, Market.USA) for x in tickers ]
+
+
+    # sort the data by market capitalization and take the top 'NumberOfSymbolsFine'
     def FineSelectionFunction(self, fine):
-        # sort descending by P/E ratio
-        sortedByPeRatio = sorted(fine, key=lambda x: x.ValuationRatios.PERatio, reverse=True)
+        # sort descending by market capitalization
+        sortedByMarketCap = sorted(fine, key=lambda x: x.MarketCap, reverse=True)
 
         # take the top entries from our sorted collection
-        return [ x.Symbol for x in sortedByPeRatio[:self.numberOfSymbolsFine] ]
+        return [ x.Symbol for x in sortedByMarketCap[:self.numberOfSymbolsFine] ]
 
     def OnData(self, data):
         # if we have no changes, do nothing
-        if self.changes == None: return
+        if self.changes is None: return
 
         # liquidate removed securities
         for security in self.changes.RemovedSecurities:
@@ -76,11 +67,11 @@ class CoarseFineFundamentalRegressionAlgorithm(QCAlgorithm):
 
         # we want 50% allocation in each security in our universe
         for security in self.changes.AddedSecurities:
-            self.SetHoldings(security.Symbol, 0.5)
-            self.Debug("Purchased Stock: " + str(security.Symbol.Value))
+            if (security.Fundamentals.EarningRatios.EquityPerShareGrowth.OneYear > 0.25):
+                self.SetHoldings(security.Symbol, 0.5)
+                self.Debug("Purchased Stock: " + str(security.Symbol.Value))
 
         self.changes = None
-
 
     # this event fires whenever we have changes to our universe
     def OnSecuritiesChanged(self, changes):

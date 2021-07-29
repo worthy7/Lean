@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,14 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
+from AlgorithmImports import *
 
 ### <summary>
 ### Basic template algorithm simply initializes the date range and cash
@@ -39,17 +32,16 @@ class LimitFillRegressionAlgorithm(QCAlgorithm):
         # Find more symbols here: http://quantconnect.com/data
         self.AddEquity("SPY", Resolution.Second)
 
-        self.mid_datetime = self.StartDate + (self.EndDate - self.StartDate)/2
-
-
     def OnData(self, data):
         '''OnData event is the primary entry point for your algorithm. Each new data point will be pumped in here.'''
         if data.ContainsKey("SPY"):
             if self.IsRoundHour(self.Time):
-                negative = 1 if self.Time < self.mid_datetime else -1
+                negative = 1 if self.Time < (self.StartDate + timedelta(days=2)) else -1
                 self.LimitOrder("SPY", negative*10, data["SPY"].Price)
-
 
     def IsRoundHour(self, dateTime):
         '''Verify whether datetime is round hour'''
         return dateTime.minute == 0 and dateTime.second == 0
+
+    def OnOrderEvent(self, orderEvent):
+        self.Debug(str(orderEvent))

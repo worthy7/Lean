@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,14 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import QCAlgorithm
-import decimal 
+from AlgorithmImports import *
 
 class Test_PythonExceptionInterpreter(QCAlgorithm):
     def Initialize(self):
@@ -28,10 +21,10 @@ class Test_PythonExceptionInterpreter(QCAlgorithm):
         x = dict()['SPY']
 
     def no_method_match(self):
-        self.Log(1)
+        self.SetCash('SPY')
 
     def unsupported_operand(self):
-        x = decimal.Decimal(1) * 1.1
+        x = None + "Pepe Grillo"
 
     def zero_division_error(self):
         x = 1 / 0

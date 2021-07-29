@@ -1,11 +1,11 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,18 +17,20 @@ using System;
 using NUnit.Framework;
 using QuantConnect.Indicators;
 using System.Linq;
+using Python.Runtime;
+using QuantConnect.Data;
 
 namespace QuantConnect.Tests.Indicators
 {
     [TestFixture]
     public class IndicatorExtensionsTests
     {
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void PipesDataUsingOfFromFirstToSecond()
         {
             var first = new SimpleMovingAverage(2);
             var second = new Delay(1);
-            
+
             // this is a configuration step, but returns the reference to the second for method chaining
             second.Of(first);
 
@@ -58,13 +60,13 @@ namespace QuantConnect.Tests.Indicators
             Assert.AreEqual(2.5m, second.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void PipesDataFirstWeightedBySecond()
         {
             const int period = 4;
             var value = new Identity("Value");
             var weight = new Identity("Weight");
-     
+
             var third = value.WeightedBy(weight, period);
 
             var data = Enumerable.Range(1, 10).ToList();
@@ -80,7 +82,7 @@ namespace QuantConnect.Tests.Indicators
             Assert.AreEqual(current, third.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void NewDataPushesToDerivedIndicators()
         {
             var identity = new Identity("identity");
@@ -97,10 +99,10 @@ namespace QuantConnect.Tests.Indicators
 
             identity.Update(DateTime.UtcNow, 3m);
             Assert.IsTrue(sma.IsReady);
-            Assert.AreEqual(2m, sma);
+            Assert.AreEqual(2m, sma.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void MultiChainSMA()
         {
             var identity = new Identity("identity");
@@ -129,10 +131,10 @@ namespace QuantConnect.Tests.Indicators
             Assert.IsTrue(delay.IsReady);
             Assert.IsTrue(sma.IsReady);
 
-            Assert.AreEqual(1.5m, sma);
+            Assert.AreEqual(1.5m, sma.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void MultiChainEMA()
         {
             var identity = new Identity("identity");
@@ -140,7 +142,7 @@ namespace QuantConnect.Tests.Indicators
 
             // create the EMA of chained methods
             var ema = delay.Of(identity).EMA(2, 1);
-            
+
             // Assert.IsTrue(ema. == 1);
             identity.Update(DateTime.UtcNow, 1m);
             Assert.IsTrue(identity.IsReady);
@@ -163,7 +165,7 @@ namespace QuantConnect.Tests.Indicators
             Assert.IsTrue(ema.IsReady);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void MultiChainMAX()
         {
             var identity = new Identity("identity");
@@ -193,7 +195,7 @@ namespace QuantConnect.Tests.Indicators
             Assert.IsTrue(max.IsReady);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void MultiChainMIN()
         {
             var identity = new Identity("identity");
@@ -223,7 +225,7 @@ namespace QuantConnect.Tests.Indicators
             Assert.IsTrue(min.IsReady);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void PlusAddsLeftAndRightAfterBothUpdated()
         {
             var left = new Identity("left");
@@ -244,7 +246,20 @@ namespace QuantConnect.Tests.Indicators
             Assert.AreEqual(7m, composite.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void PlusAddsLeftAndConstant()
+        {
+            var left = new Identity("left");
+            var composite = left.Plus(5);
+
+            left.Update(DateTime.Today, 1m);
+            Assert.AreEqual(6m, composite.Current.Value);
+
+            left.Update(DateTime.Today, 2m);
+            Assert.AreEqual(7m, composite.Current.Value);
+        }
+
+        [Test, Parallelizable(ParallelScope.Self)]
         public void MinusSubtractsLeftAndRightAfterBothUpdated()
         {
             var left = new Identity("left");
@@ -265,8 +280,21 @@ namespace QuantConnect.Tests.Indicators
             Assert.AreEqual(-1m, composite.Current.Value);
         }
 
-        [Test]
-        public void OverDivdesLeftAndRightAfterBothUpdated()
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void MinusSubtractsLeftAndConstant()
+        {
+            var left = new Identity("left");
+            var composite = left.Minus(1);
+
+            left.Update(DateTime.Today, 1m);
+            Assert.AreEqual(0m, composite.Current.Value);
+
+            left.Update(DateTime.Today, 2m);
+            Assert.AreEqual(1m, composite.Current.Value);
+        }
+
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void OverDividesLeftAndRightAfterBothUpdated()
         {
             var left = new Identity("left");
             var right = new Identity("right");
@@ -286,7 +314,20 @@ namespace QuantConnect.Tests.Indicators
             Assert.AreEqual(3m / 4m, composite.Current.Value);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void OverDividesLeftAndConstant()
+        {
+            var left = new Identity("left");
+            var composite = left.Over(2);
+
+            left.Update(DateTime.Today, 2m);
+            Assert.AreEqual(1m, composite.Current.Value);
+
+            left.Update(DateTime.Today, 4m);
+            Assert.AreEqual(2m, composite.Current.Value);
+        }
+
+        [Test, Parallelizable(ParallelScope.Self)]
         public void OverHandlesDivideByZero()
         {
             var left = new Identity("left");
@@ -307,7 +348,7 @@ namespace QuantConnect.Tests.Indicators
             Assert.IsTrue(updatedEventFired);
         }
 
-        [Test]
+        [Test, Parallelizable(ParallelScope.Self)]
         public void TimesMultipliesLeftAndRightAfterBothUpdated()
         {
             var left = new Identity("left");
@@ -326,6 +367,207 @@ namespace QuantConnect.Tests.Indicators
 
             right.Update(DateTime.Today, 4m);
             Assert.AreEqual(12m, composite.Current.Value);
+        }
+
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void TimesMultipliesLeftAndConstant()
+        {
+            var left = new Identity("left");
+            var composite = left.Times(10);
+
+            left.Update(DateTime.Today, 1m);
+            Assert.AreEqual(10m, composite.Current.Value);
+
+            left.Update(DateTime.Today, 2m);
+            Assert.AreEqual(20m, composite.Current.Value);
+
+        }
+
+        [Test, Parallelizable(ParallelScope.Self)]
+        public void WorksForIndicatorsOfDifferentTypes()
+        {
+            var indicatorA1 = new TestIndicatorA("1");
+            var indicatorA2 = new TestIndicatorA("2");
+
+            indicatorA1.Over(indicatorA2);
+            indicatorA1.Minus(indicatorA2);
+            indicatorA1.Times(indicatorA2);
+            indicatorA1.Plus(indicatorA2);
+            indicatorA1.Of(indicatorA2);
+
+            var indicatorB1 = new TestIndicatorB("1");
+            var indicatorB2 = new TestIndicatorB("2");
+            indicatorB1.Over(indicatorB2);
+            indicatorB1.Minus(indicatorB2);
+            indicatorB1.Times(indicatorB2);
+            indicatorB1.Plus(indicatorB2);
+            indicatorB1.Of(indicatorB2);
+        }
+
+        [Test]
+        public void MinusSubtractsLeftAndConstant_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var composite = (IIndicator) IndicatorExtensions.Minus(left.ToPython(), 10);
+
+                left.Update(DateTime.Today, 1);
+                Assert.AreEqual(-9, composite.Current.Value);
+
+                left.Update(DateTime.Today, 2);
+                Assert.AreEqual(-8, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void PlusAddsLeftAndConstant_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var composite = (IIndicator)IndicatorExtensions.Plus(left.ToPython(), 10);
+
+                left.Update(DateTime.Today, 1);
+                Assert.AreEqual(11, composite.Current.Value);
+
+                left.Update(DateTime.Today, 2);
+                Assert.AreEqual(12, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void OverDivdesLeftAndConstant_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var composite = (IIndicator)IndicatorExtensions.Over(left.ToPython(), 5);
+
+                left.Update(DateTime.Today, 10);
+                Assert.AreEqual(2, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(4, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void TimesMultipliesLeftAndConstant_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var composite = (IIndicator)IndicatorExtensions.Times(left.ToPython(), 5);
+
+                left.Update(DateTime.Today, 10);
+                Assert.AreEqual(50, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(100, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void TimesMultipliesLeftAndRight_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var right = new Identity("right");
+                var composite = (IIndicator)IndicatorExtensions.Times(left.ToPython(), right.ToPython());
+
+                left.Update(DateTime.Today, 10);
+                right.Update(DateTime.Today, 10);
+                Assert.AreEqual(100, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(100, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void OverDividesLeftAndRight_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var right = new Identity("right");
+                var composite = (IIndicator)IndicatorExtensions.Over(left.ToPython(), right.ToPython());
+
+                left.Update(DateTime.Today, 10);
+                right.Update(DateTime.Today, 10);
+                Assert.AreEqual(1, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(1, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void PlusAddsLeftAndRight_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var right = new Identity("right");
+                var composite = (IIndicator)IndicatorExtensions.Plus(left.ToPython(), right.ToPython());
+
+                left.Update(DateTime.Today, 10);
+                right.Update(DateTime.Today, 10);
+                Assert.AreEqual(20, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(20, composite.Current.Value);
+            }
+        }
+
+        [Test]
+        public void MinusSubstractsLeftAndRight_Py()
+        {
+            using (Py.GIL())
+            {
+                var left = new Identity("left");
+                var right = new Identity("right");
+                var composite = (IIndicator)IndicatorExtensions.Minus(left.ToPython(), right.ToPython());
+
+                left.Update(DateTime.Today, 10);
+                right.Update(DateTime.Today, 10);
+                Assert.AreEqual(0, composite.Current.Value);
+
+                left.Update(DateTime.Today, 20);
+                Assert.AreEqual(0, composite.Current.Value);
+            }
+        }
+
+        private class TestIndicatorA : IndicatorBase<IBaseData>
+        {
+            public TestIndicatorA(string name) : base(name)
+            {
+            }
+            public override bool IsReady { get; }
+            protected override decimal ComputeNextValue(IBaseData input)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        private class TestIndicatorB : IndicatorBase<IndicatorDataPoint>
+        {
+            public TestIndicatorB(string name) : base(name)
+            {
+            }
+            public override bool IsReady
+            {
+                get
+                {
+                    throw new NotImplementedException();
+                }
+            }
+            protected override decimal ComputeNextValue(IndicatorDataPoint input)
+            {
+                throw new NotImplementedException();
+            }
         }
     }
 }

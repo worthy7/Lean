@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -20,7 +20,6 @@ using System.Linq;
 using QuantConnect.Interfaces;
 using QuantConnect.Securities;
 using QuantConnect.Securities.Option;
-using QuantConnect.Util;
 
 namespace QuantConnect.Data.UniverseSelection
 {
@@ -29,12 +28,13 @@ namespace QuantConnect.Data.UniverseSelection
     /// </summary>
     public class OptionChainUniverse : Universe
     {
-        private BaseData _underlying;
-        private readonly Option _option;
+        private readonly OptionFilterUniverse _optionFilterUniverse;
         private readonly UniverseSettings _universeSettings;
         private readonly bool _liveMode;
-
+        // as an array to make it easy to prepend to selected symbols
+        private readonly Symbol[] _underlyingSymbol;
         private DateTime _cacheDate;
+        private DateTime _lastExchangeDate;
 
         // used for time-based removals in live mode
         private readonly TimeSpan _minimumTimeInUniverse = TimeSpan.FromMinutes(15);
@@ -45,18 +45,23 @@ namespace QuantConnect.Data.UniverseSelection
         /// </summary>
         /// <param name="option">The canonical option chain security</param>
         /// <param name="universeSettings">The universe settings to be used for new subscriptions</param>
-        /// <param name="securityInitializer">The security initializer to use on newly created securities</param>
         /// <param name="liveMode">True if we're running in live mode, false for backtest mode</param>
         public OptionChainUniverse(Option option,
-                                   UniverseSettings universeSettings,
-                                   ISecurityInitializer securityInitializer,
-                                   bool liveMode)
-            : base(option.SubscriptionDataConfig, securityInitializer)
+            UniverseSettings universeSettings,
+            bool liveMode)
+            : base(option.SubscriptionDataConfig)
         {
-            _option = option;
-            _universeSettings = universeSettings;
+            Option = option;
+            _underlyingSymbol = new[] { Option.Symbol.Underlying };
+            _universeSettings = new UniverseSettings(universeSettings) { DataNormalizationMode = DataNormalizationMode.Raw };
             _liveMode = liveMode;
+            _optionFilterUniverse = new OptionFilterUniverse();
         }
+
+        /// <summary>
+        /// The canonical option chain security
+        /// </summary>
+        public Option Option { get; }
 
         /// <summary>
         /// Gets the settings used for subscriptons added for this universe
@@ -77,32 +82,31 @@ namespace QuantConnect.Data.UniverseSelection
             var optionsUniverseDataCollection = data as OptionChainUniverseDataCollection;
             if (optionsUniverseDataCollection == null)
             {
-                throw new ArgumentException(string.Format("Expected data of type '{0}'", typeof (OptionChainUniverseDataCollection).Name));
+                throw new ArgumentException($"Expected data of type '{typeof(OptionChainUniverseDataCollection).Name}'");
             }
 
-            _underlying = optionsUniverseDataCollection.Underlying ?? _underlying;
-            optionsUniverseDataCollection.Underlying = _underlying;
-
-            if (_underlying == null || data.Data.Count == 0)
-            {
-                return Unchanged;
-            }
-
-            if (_cacheDate == data.Time.Date)
+            // date change detection needs to be done in exchange time zone
+            var exchangeDate = data.Time.ConvertFromUtc(Option.Exchange.TimeZone).Date;
+            if (_cacheDate == exchangeDate)
             {
                 return Unchanged;
             }
 
             var availableContracts = optionsUniverseDataCollection.Data.Select(x => x.Symbol);
-            var results = _option.ContractFilter.Filter(new OptionFilterUniverse(availableContracts, _underlying));
+            // we will only update unique strikes when there is an exchange date change
+            _optionFilterUniverse.Refresh(availableContracts, optionsUniverseDataCollection.Underlying, _lastExchangeDate != exchangeDate);
+            _lastExchangeDate = exchangeDate;
+
+            var results = Option.ContractFilter.Filter(_optionFilterUniverse);
 
             // if results are not dynamic, we cache them and won't call filtering till the end of the day
             if (!results.IsDynamic)
             {
-                _cacheDate = data.Time.Date;
+                _cacheDate = data.Time.ConvertFromUtc(Option.Exchange.TimeZone).Date;
             }
 
-            var resultingSymbols = results.ToHashSet();
+            // always prepend the underlying symbol
+            var resultingSymbols = _underlyingSymbol.Concat(results).ToHashSet();
 
             // we save off the filtered results to the universe data collection for later
             // population into the OptionChain. This is non-ideal and could be remedied by
@@ -122,6 +126,12 @@ namespace QuantConnect.Data.UniverseSelection
         /// false if the security was already in the universe</returns>
         internal override bool AddMember(DateTime utcTime, Security security)
         {
+            // never add members to disposed universes
+            if (DisposeRequested)
+            {
+                return false;
+            }
+
             if (Securities.ContainsKey(security.Symbol))
             {
                 return false;
@@ -146,23 +156,6 @@ namespace QuantConnect.Data.UniverseSelection
         }
 
         /// <summary>
-        /// Creates and configures a security for the specified symbol
-        /// </summary>
-        /// <param name="symbol">The symbol of the security to be created</param>
-        /// <param name="algorithm">The algorithm instance</param>
-        /// <param name="marketHoursDatabase">The market hours database</param>
-        /// <param name="symbolPropertiesDatabase">The symbol properties database</param>
-        /// <returns>The newly initialized security object</returns>
-        public override Security CreateSecurity(Symbol symbol, IAlgorithm algorithm, MarketHoursDatabase marketHoursDatabase, SymbolPropertiesDatabase symbolPropertiesDatabase)
-        {
-            // set the underlying security and pricing model from the canonical security
-            var option = (Option)base.CreateSecurity(symbol, algorithm, marketHoursDatabase, symbolPropertiesDatabase);
-            option.Underlying = _option.Underlying;
-            option.PriceModel = _option.PriceModel;
-            return option;
-        }
-
-        /// <summary>
         /// Determines whether or not the specified security can be removed from
         /// this universe. This is useful to prevent securities from being taken
         /// out of a universe before the algorithm has had enough time to make
@@ -173,6 +166,12 @@ namespace QuantConnect.Data.UniverseSelection
         /// <returns>True if we can remove the security, false otherwise</returns>
         public override bool CanRemoveMember(DateTime utcTime, Security security)
         {
+            // can always remove securities after dispose requested
+            if (DisposeRequested)
+            {
+                return true;
+            }
+
             // if we haven't begun receiving data for this security then it's safe to remove
             var lastData = security.Cache.GetData();
             if (lastData == null)
@@ -210,6 +209,32 @@ namespace QuantConnect.Data.UniverseSelection
             // contracts change throughout the day
             var localTime = utcTime.ConvertFromUtc(security.Exchange.TimeZone);
             return localTime.Date != lastData.Time.Date;
+        }
+
+        /// <summary>
+        /// Gets the subscription requests to be added for the specified security
+        /// </summary>
+        /// <param name="security">The security to get subscriptions for</param>
+        /// <param name="currentTimeUtc">The current time in utc. This is the frontier time of the algorithm</param>
+        /// <param name="maximumEndTimeUtc">The max end time</param>
+        /// <param name="subscriptionService">Instance which implements <see cref="ISubscriptionDataConfigService"/> interface</param>
+        /// <returns>All subscriptions required by this security</returns>
+        public override IEnumerable<SubscriptionRequest> GetSubscriptionRequests(Security security, DateTime currentTimeUtc, DateTime maximumEndTimeUtc,
+                                                                                 ISubscriptionDataConfigService subscriptionService)
+        {
+            if (Option.Symbol.Underlying == security.Symbol)
+            {
+                Option.Underlying = security;
+                security.SetDataNormalizationMode(DataNormalizationMode.Raw);
+            }
+            else
+            {
+                // set the underlying security and pricing model from the canonical security
+                var option = (Option)security;
+                option.PriceModel = Option.PriceModel;
+            }
+
+            return base.GetSubscriptionRequests(security, currentTimeUtc, maximumEndTimeUtc, subscriptionService);
         }
     }
 }

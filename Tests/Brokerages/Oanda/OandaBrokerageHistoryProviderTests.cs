@@ -1,11 +1,11 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,7 +30,7 @@ namespace QuantConnect.Tests.Brokerages.Oanda
     [TestFixture, Ignore("This test requires a configured and testable Oanda practice account")]
     public class OandaBrokerageHistoryProviderTests
     {
-        public TestCaseData[] TestParameters
+        private static TestCaseData[] TestParameters
         {
             get
             {
@@ -59,7 +59,7 @@ namespace QuantConnect.Tests.Brokerages.Oanda
             }
         }
 
-        [Test, TestCaseSource("TestParameters")]
+        [Test, TestCaseSource(nameof(TestParameters))]
         public void GetsHistory(Symbol symbol, Resolution resolution, TimeSpan period, bool throwsException)
         {
             TestDelegate test = () =>
@@ -68,11 +68,11 @@ namespace QuantConnect.Tests.Brokerages.Oanda
                 var accessToken = Config.Get("oanda-access-token");
                 var accountId = Config.Get("oanda-account-id");
 
-                var brokerage = new OandaBrokerage(null, null, environment, accessToken, accountId);
+                var brokerage = new OandaBrokerage(null, null, null, environment, accessToken, accountId);
 
                 var historyProvider = new BrokerageHistoryProvider();
                 historyProvider.SetBrokerage(brokerage);
-                historyProvider.Initialize(null, null, null, null, null, null);
+                historyProvider.Initialize(new HistoryProviderInitializeParameters(null, null, null, null, null, null, null, false, null));
 
                 var now = DateTime.UtcNow;
 

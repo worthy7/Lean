@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,15 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from datetime import timedelta
+from AlgorithmImports import *
 
 ### <summary>
 ### This example demonstrates how to add options for a given underlying equity security.
@@ -30,39 +22,45 @@ from datetime import timedelta
 ### <meta name="tag" content="options" />
 ### <meta name="tag" content="filter selection" />
 class BasicTemplateOptionsAlgorithm(QCAlgorithm):
+    UnderlyingTicker = "GOOG"
 
     def Initialize(self):
         self.SetStartDate(2015, 12, 24)
         self.SetEndDate(2015, 12, 24)
         self.SetCash(100000)
 
-        option = self.AddOption("GOOG")
+        equity = self.AddEquity(self.UnderlyingTicker)
+        option = self.AddOption(self.UnderlyingTicker)
         self.option_symbol = option.Symbol
 
         # set our strike/expiry filter for this option chain
-        option.SetFilter(-2, +2, timedelta(0), timedelta(180))
+        option.SetFilter(lambda u: (u.Strikes(-2, +2)
+                                     # Expiration method accepts TimeSpan objects or integer for days.
+                                     # The following statements yield the same filtering criteria
+                                     .Expiration(0, 180)))
+                                     #.Expiration(TimeSpan.Zero, TimeSpan.FromDays(180))))
 
         # use the underlying equity as the benchmark
-        self.SetBenchmark("GOOG")
+        self.SetBenchmark(equity.Symbol)
 
     def OnData(self,slice):
-        if self.Portfolio.Invested: return
+        if self.Portfolio.Invested or not self.IsMarketOpen(self.option_symbol): return
 
-        for kvp in slice.OptionChains:
-            if kvp.Key != self.option_symbol: continue
-            chain = kvp.Value
+        chain = slice.OptionChains.GetValue(self.option_symbol)
+        if chain is None:
+            return
 
-            # we sort the contracts to find at the money (ATM) contract with farthest expiration
-            contracts = sorted(sorted(sorted(chain, \
-                key = lambda x: abs(chain.Underlying.Price - x.Strike)), \
-                key = lambda x: x.Expiry, reverse=True), \
-                key = lambda x: x.Right, reverse=True)
+        # we sort the contracts to find at the money (ATM) contract with farthest expiration
+        contracts = sorted(sorted(sorted(chain, \
+            key = lambda x: abs(chain.Underlying.Price - x.Strike)), \
+            key = lambda x: x.Expiry, reverse=True), \
+            key = lambda x: x.Right, reverse=True)
 
-            # if found, trade it
-            if len(contracts) == 0: continue
-            symbol = contracts[0].Symbol
-            self.MarketOrder(symbol, 1)
-            self.MarketOnCloseOrder(symbol, -1)
+        # if found, trade it
+        if len(contracts) == 0: return
+        symbol = contracts[0].Symbol
+        self.MarketOrder(symbol, 1)
+        self.MarketOnCloseOrder(symbol, -1)
 
     def OnOrderEvent(self, orderEvent):
         self.Log(str(orderEvent))

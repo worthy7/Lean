@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,20 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-AddReference("QuantConnect.Indicators")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Indicators import *
-from QuantConnect.Data import *
-from QuantConnect.Data.Market import *
-from QuantConnect.Algorithm import *
-import numpy as np
-from datetime import datetime
+from AlgorithmImports import *
 
 ### <summary>
 ### Constructs a displaced moving average ribbon and buys when all are lined up, liquidates when they all line down
@@ -43,7 +30,7 @@ class DisplacedMovingAverageRibbon(QCAlgorithm):
     def Initialize(self):
         self.SetStartDate(2009, 1, 1)  #Set Start Date
         self.SetEndDate(2015, 1, 1)    #Set End Date
-        self.spy = self.AddEquity("SPY", Resolution.Minute).Symbol
+        self.spy = self.AddEquity("SPY", Resolution.Daily).Symbol
         count = 6
         offset = 5
         period = 15
@@ -87,7 +74,7 @@ class DisplacedMovingAverageRibbon(QCAlgorithm):
     def IsAscending(self, values):
         last = None
         for val in values:
-            if last == None:
+            if last is None:
                 last = val
                 continue
             if last < val:
@@ -99,7 +86,7 @@ class DisplacedMovingAverageRibbon(QCAlgorithm):
     def IsDescending(self, values):
         last = None
         for val in values:
-            if last == None:
+            if last is None:
                 last = val
                 continue
             if last > val:

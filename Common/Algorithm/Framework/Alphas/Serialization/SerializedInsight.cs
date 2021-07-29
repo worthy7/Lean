@@ -1,4 +1,21 @@
-﻿using Newtonsoft.Json;
+﻿/*
+ * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+ * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+*/
+
+using Newtonsoft.Json;
+using QuantConnect.Util;
+using System;
 
 namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
 {
@@ -9,6 +26,8 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
     /// </summary>
     public class SerializedInsight
     {
+        private double _createdTime;
+
         /// <summary>
         /// See <see cref="Insight.Id"/>
         /// </summary>
@@ -16,10 +35,37 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
         public string Id { get; set; }
 
         /// <summary>
+        /// See <see cref="Insight.GroupId"/>
+        /// </summary>
+        [JsonProperty("group-id")]
+        public string GroupId { get; set; }
+
+        /// <summary>
+        /// See <see cref="Insight.SourceModel"/>
+        /// </summary>
+        [JsonProperty("source-model")]
+        public string SourceModel { get; set; }
+
+        /// <summary>
+        /// Pass-through for <see cref="CreatedTime"/>
+        /// </summary>
+        [Obsolete("Deprecated as of 2020-01-23. Please use the `CreatedTime` property instead.")]
+        [JsonProperty("generated-time")]
+        public double GeneratedTime
+        {
+            get { return _createdTime; }
+            set { _createdTime = value; }
+        }
+
+        /// <summary>
         /// See <see cref="Insight.GeneratedTimeUtc"/>
         /// </summary>
-        [JsonProperty("generated-time")]
-        public double GeneratedTime { get; set; }
+        [JsonProperty("created-time")]
+        public double CreatedTime
+        {
+            get { return _createdTime; }
+            set { _createdTime = value; }
+        }
 
         /// <summary>
         /// See <see cref="Insight.CloseTimeUtc"/>
@@ -54,6 +100,12 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
         public decimal ReferenceValue { get; set; }
 
         /// <summary>
+        /// See <see cref="Insight.ReferenceValueFinal"/>
+        /// </summary>
+        [JsonProperty("reference-final")]
+        public decimal ReferenceValueFinal { get; set; }
+
+        /// <summary>
         /// See <see cref="Insight.Direction"/>
         /// </summary>
         [JsonProperty("direction")]
@@ -68,37 +120,48 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
         /// <summary>
         /// See <see cref="Insight.Magnitude"/>
         /// </summary>
-        [JsonProperty("magnitude", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("magnitude")]
+        [JsonConverter(typeof(JsonRoundingConverter))]
         public double? Magnitude { get; set; }
 
         /// <summary>
         /// See <see cref="Insight.Confidence"/>
         /// </summary>
-        [JsonProperty("confidence", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("confidence")]
+        [JsonConverter(typeof(JsonRoundingConverter))]
         public double? Confidence { get; set; }
+
+        /// <summary>
+        /// See <see cref="Insight.Weight"/>
+        /// </summary>
+        [JsonProperty("weight")]
+        public double? Weight { get; set; }
 
         /// <summary>
         /// See <see cref="InsightScore.IsFinalScore"/>
         /// </summary>
-        [JsonProperty("score-final", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("score-final")]
         public bool ScoreIsFinal { get; set; }
 
         /// <summary>
         /// See <see cref="InsightScore.Magnitude"/>
         /// </summary>
-        [JsonProperty("score-magnitude", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("score-magnitude")]
+        [JsonConverter(typeof(JsonRoundingConverter))]
         public double ScoreMagnitude { get; set; }
 
         /// <summary>
         /// See <see cref="InsightScore.Direction"/>
         /// </summary>
-        [JsonProperty("score-direction", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("score-direction")]
+        [JsonConverter(typeof(JsonRoundingConverter))]
         public double ScoreDirection { get; set; }
 
         /// <summary>
         /// See <see cref="Insight.EstimatedValue"/>
         /// </summary>
-        [JsonProperty("estimated-value", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty("estimated-value")]
+        [JsonConverter(typeof(JsonRoundingConverter))]
         public decimal EstimatedValue { get; set; }
 
         /// <summary>
@@ -114,13 +177,16 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
         /// <param name="insight">The insight to copy</param>
         public SerializedInsight(Insight insight)
         {
-            Id = insight.Id.ToString("N");
-            GeneratedTime = Time.DateTimeToUnixTimeStamp(insight.GeneratedTimeUtc);
+            Id = insight.Id.ToStringInvariant("N");
+            SourceModel = insight.SourceModel;
+            GroupId = insight.GroupId?.ToStringInvariant("N");
+            CreatedTime = Time.DateTimeToUnixTimeStamp(insight.GeneratedTimeUtc);
             CloseTime = Time.DateTimeToUnixTimeStamp(insight.CloseTimeUtc);
             Symbol = insight.Symbol.ID.ToString();
             Ticker = insight.Symbol.Value;
             Type = insight.Type;
             ReferenceValue = insight.ReferenceValue;
+            ReferenceValueFinal = insight.ReferenceValueFinal;
             Direction = insight.Direction;
             Period = insight.Period.TotalSeconds;
             Magnitude = insight.Magnitude;
@@ -129,6 +195,7 @@ namespace QuantConnect.Algorithm.Framework.Alphas.Serialization
             ScoreMagnitude = insight.Score.Magnitude;
             ScoreDirection = insight.Score.Direction;
             EstimatedValue = insight.EstimatedValue;
+            Weight = insight.Weight;
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -28,19 +28,30 @@ namespace QuantConnect.Lean.Engine.Alphas
     /// </summary>
     public class ChartingInsightManagerExtension : IInsightManagerExtension
     {
+        /// <summary>
+        /// The string name used for the Alpha Assets chart
+        /// </summary>
+        public const string AlphaAssets = "Alpha Assets";
         private readonly bool _liveMode;
         private readonly StatisticsInsightManagerExtension _statisticsManager;
 
         private const int BacktestChartSamples = 1000;
         private DateTime _lastInsightCountSampleDateUtc;
         private DateTime _nextChartSampleAlgorithmTimeUtc;
+        private int _dailyInsightCount;
 
-        private readonly Chart _totalInsightCountPerSymbolChart = new Chart("Alpha Assets");          // pie chart
-        private readonly Chart _dailyInsightCountPerSymbolChart = new Chart("Alpha Asset Breakdown"); // stacked area
+        // Keep track, we only want to add the charts if the algorithm is producing insights
+        private bool _chartsAdded;
+        private IAlgorithm _algorithm;
+
+        // Heatmap chart
+        private readonly Chart _totalInsightCountPerSymbolChart = new Chart(AlphaAssets);          
+        private readonly Dictionary<Symbol, int> _totalInsightCountPerSymbol = new Dictionary<Symbol, int>();
+
+        private readonly Chart _totalInsightCountChart = new Chart("Insight Count");
         private readonly Series _totalInsightCountSeries = new Series("Count", SeriesType.Bar, "#");
 
-        private readonly Dictionary<Symbol, int> _insightCountPerSymbol = new Dictionary<Symbol, int>();
-        private readonly Dictionary<Symbol, int> _dailyInsightCountPerSymbol = new Dictionary<Symbol, int>();
+        private readonly Chart _insightScoreChart = new Chart("Alpha");
         private readonly Dictionary<InsightScoreType, Series> _insightScoreSeriesByScoreType = new Dictionary<InsightScoreType, Series>();
 
         /// <summary>
@@ -56,27 +67,20 @@ namespace QuantConnect.Lean.Engine.Alphas
         /// <param name="statisticsManager">Statistics manager used to access mean population scores for charting</param>
         public ChartingInsightManagerExtension(IAlgorithm algorithm, StatisticsInsightManagerExtension statisticsManager)
         {
+            _algorithm = algorithm;
             _statisticsManager = statisticsManager;
             _liveMode = algorithm.LiveMode;
 
-            // chart for average scores over sample period
-            var scoreChart = new Chart("Alpha");
+            // Add our series for average scores over sample period to our "Alpha" chart
             foreach (var scoreType in InsightManager.ScoreTypes)
             {
                 var series = new Series($"{scoreType} Score", SeriesType.Line, "%");
-                scoreChart.AddSeries(series);
                 _insightScoreSeriesByScoreType[scoreType] = series;
+                _insightScoreChart.AddSeries(series);
             }
 
-            // chart for insight count over sample period
-            var insightCount = new Chart("Insight Count");
-            insightCount.AddSeries(_totalInsightCountSeries);
-
-            algorithm.AddChart(scoreChart);
-            algorithm.AddChart(insightCount);
-            algorithm.AddChart(_totalInsightCountPerSymbolChart);
-            // removing this for now, not sure best way to display this data
-            //Algorithm.AddChart(_dailyInsightCountPerSymbolChart);
+            // Add a series for insight count over sample period to the "Insight Count" chart
+            _totalInsightCountChart.AddSeries(_totalInsightCountSeries);
         }
 
         /// <summary>
@@ -86,20 +90,31 @@ namespace QuantConnect.Lean.Engine.Alphas
         /// <param name="frontierTimeUtc">The current frontier time utc</param>
         public void Step(DateTime frontierTimeUtc)
         {
+            // Only add our charts to the algorithm when we actually have an insight 
+            // We will still update our internal charts anyways, but this keeps Alpha charts out of
+            // algorithms that don't use the framework.
+            if (!_chartsAdded && _dailyInsightCount > 0)
+            {
+                _algorithm.AddChart(_insightScoreChart);
+                _algorithm.AddChart(_totalInsightCountChart);
+                _algorithm.AddChart(_totalInsightCountPerSymbolChart);
+
+                _chartsAdded = true;
+            }
+
             // sample insight/symbol counts each utc day change
             if (frontierTimeUtc.Date > _lastInsightCountSampleDateUtc)
             {
                 _lastInsightCountSampleDateUtc = frontierTimeUtc.Date;
 
-                // populate charts with the daily insight counts per symbol, resetting our storage
-                var sumInsights = PopulateChartWithSeriesPerSymbol(_dailyInsightCountPerSymbol, _dailyInsightCountPerSymbolChart, SeriesType.StackedArea, frontierTimeUtc);
-                _dailyInsightCountPerSymbol.Clear();
-
                 // add sum of daily insight counts to the total insight count series
-                _totalInsightCountSeries.AddPoint(frontierTimeUtc.Date, sumInsights, _liveMode);
+                _totalInsightCountSeries.AddPoint(frontierTimeUtc.Date, _dailyInsightCount);
 
-                // populate charts with the total insight counts per symbol, no need to reset
-                PopulateChartWithSeriesPerSymbol(_insightCountPerSymbol, _totalInsightCountPerSymbolChart, SeriesType.Pie, frontierTimeUtc);
+                // Create the pie chart every minute or so
+                PopulateChartWithSeriesPerSymbol(_totalInsightCountPerSymbol, _totalInsightCountPerSymbolChart, SeriesType.Treemap, frontierTimeUtc);
+
+                // Resetting our storage
+                _dailyInsightCount = 0;
             }
 
             // sample average population scores
@@ -114,7 +129,7 @@ namespace QuantConnect.Lean.Engine.Alphas
                         foreach (var scoreType in InsightManager.ScoreTypes)
                         {
                             var score = 100 * _statisticsManager.Statistics.RollingAveragedPopulationScore.GetScore(scoreType);
-                            _insightScoreSeriesByScoreType[scoreType].AddPoint(frontierTimeUtc, (decimal)score, _liveMode);
+                            _insightScoreSeriesByScoreType[scoreType].AddPoint(frontierTimeUtc, score.SafeDecimalCast());
                         }
                         _nextChartSampleAlgorithmTimeUtc = frontierTimeUtc + SampleInterval;
                     }
@@ -162,19 +177,17 @@ namespace QuantConnect.Lean.Engine.Alphas
         /// <param name="context">The newly generated insight analysis context</param>
         public void OnInsightGenerated(InsightAnalysisContext context)
         {
-            if (!_dailyInsightCountPerSymbol.ContainsKey(context.Symbol))
+            if (!_totalInsightCountPerSymbol.ContainsKey(context.Symbol))
             {
-                _insightCountPerSymbol[context.Symbol] = 1;
-                _dailyInsightCountPerSymbol[context.Symbol] = 1;
+                _totalInsightCountPerSymbol[context.Symbol] = 1;
             }
             else
             {
-                // track total assets for life of backtest
-                _insightCountPerSymbol[context.Symbol] += 1;
-
-                // track daily assets
-                _dailyInsightCountPerSymbol[context.Symbol] += 1;
+                // track total count per symbol
+                _totalInsightCountPerSymbol[context.Symbol] += 1;
             }
+
+            _dailyInsightCount++;
         }
 
         /// <summary>
@@ -196,9 +209,8 @@ namespace QuantConnect.Lean.Engine.Alphas
         /// <summary>
         /// Creates series for each symbol and adds a value corresponding to the specified data
         /// </summary>
-        private int PopulateChartWithSeriesPerSymbol(Dictionary<Symbol, int> data, Chart chart, SeriesType seriesType, DateTime frontierTimeUtc)
+        private void PopulateChartWithSeriesPerSymbol(Dictionary<Symbol, int> data, Chart chart, SeriesType seriesType, DateTime frontierTimeUtc)
         {
-            var sum = 0;
             foreach (var kvp in data)
             {
                 var symbol = kvp.Key;
@@ -207,14 +219,11 @@ namespace QuantConnect.Lean.Engine.Alphas
                 Series series;
                 if (!chart.Series.TryGetValue(symbol.Value, out series))
                 {
-                    series = new Series(symbol.Value, seriesType, "#");
+                    series = new Series(symbol.Value, seriesType, null);
                     chart.Series.Add(series.Name, series);
                 }
-
-                sum += count;
-                series.AddPoint(frontierTimeUtc, count, _liveMode);
+                series.AddPoint(frontierTimeUtc, count);
             }
-            return sum;
         }
     }
 }

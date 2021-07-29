@@ -16,7 +16,9 @@
 
 using System;
 using System.Collections.Generic;
+using QuantConnect.Benchmarks;
 using QuantConnect.Data.Market;
+using QuantConnect.Interfaces;
 using QuantConnect.Orders;
 using QuantConnect.Orders.Fees;
 using QuantConnect.Orders.Fills;
@@ -31,9 +33,18 @@ namespace QuantConnect.Brokerages
     public interface IBrokerageModel
     {
         /// <summary>
-        /// Gets or sets the account type used by this model
+        /// Gets the account type used by this model
         /// </summary>
         AccountType AccountType
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Gets the brokerages model percentage factor used to determine the required unused buying power for the account.
+        /// From 1 to 0. Example: 0 means no unused buying power is required. 0.5 means 50% of the buying power should be left unused.
+        /// </summary>
+        decimal RequiredFreeBuyingPowerPercent
         {
             get;
         }
@@ -93,6 +104,13 @@ namespace QuantConnect.Brokerages
         decimal GetLeverage(Security security);
 
         /// <summary>
+        /// Get the benchmark for this model
+        /// </summary>
+        /// <param name="securities">SecurityService to create the security with if needed</param>
+        /// <returns>The benchmark for this brokerage</returns>
+        IBenchmark GetBenchmark(SecurityManager securities);
+
+        /// <summary>
         /// Gets a new fill model that represents this brokerage's fill behavior
         /// </summary>
         /// <param name="security">The security to get fill model for</param>
@@ -117,9 +135,24 @@ namespace QuantConnect.Brokerages
         /// Gets a new settlement model for the security
         /// </summary>
         /// <param name="security">The security to get a settlement model for</param>
+        /// <returns>The settlement model for this brokerage</returns>
+        ISettlementModel GetSettlementModel(Security security);
+
+        /// <summary>
+        /// Gets a new settlement model for the security
+        /// </summary>
+        /// <param name="security">The security to get a settlement model for</param>
         /// <param name="accountType">The account type</param>
         /// <returns>The settlement model for this brokerage</returns>
+        [Obsolete("Flagged deprecated and will remove December 1st 2018")]
         ISettlementModel GetSettlementModel(Security security, AccountType accountType);
+
+        /// <summary>
+        /// Gets a new buying power model for the security
+        /// </summary>
+        /// <param name="security">The security to get a buying power model for</param>
+        /// <returns>The buying power model for this brokerage/security</returns>
+        IBuyingPowerModel GetBuyingPowerModel(Security security);
 
         /// <summary>
         /// Gets a new buying power model for the security
@@ -127,7 +160,14 @@ namespace QuantConnect.Brokerages
         /// <param name="security">The security to get a buying power model for</param>
         /// <param name="accountType">The account type</param>
         /// <returns>The buying power model for this brokerage/security</returns>
+        [Obsolete("Flagged deprecated and will remove December 1st 2018")]
         IBuyingPowerModel GetBuyingPowerModel(Security security, AccountType accountType);
+
+        /// <summary>
+        /// Gets the shortable provider
+        /// </summary>
+        /// <returns>Shortable provider</returns>
+        IShortableProvider GetShortableProvider();
     }
 
     /// <summary>
@@ -138,10 +178,11 @@ namespace QuantConnect.Brokerages
         /// <summary>
         /// Creates a new <see cref="IBrokerageModel"/> for the specified <see cref="BrokerageName"/>
         /// </summary>
+        /// <param name="orderProvider">The order provider</param>
         /// <param name="brokerage">The name of the brokerage</param>
         /// <param name="accountType">The account type</param>
         /// <returns>The model for the specified brokerage</returns>
-        public static IBrokerageModel Create(BrokerageName brokerage, AccountType accountType)
+        public static IBrokerageModel Create(IOrderProvider orderProvider, BrokerageName brokerage, AccountType accountType)
         {
             switch (brokerage)
             {
@@ -161,10 +202,25 @@ namespace QuantConnect.Brokerages
                     return new FxcmBrokerageModel(accountType);
 
                 case BrokerageName.Bitfinex:
-                    return new DefaultBrokerageModel(accountType);
+                    return new BitfinexBrokerageModel(accountType);
+
+                case BrokerageName.Binance:
+                    return new BinanceBrokerageModel(accountType);
 
                 case BrokerageName.GDAX:
                     return new GDAXBrokerageModel(accountType);
+
+                case BrokerageName.AlphaStreams:
+                    return new AlphaStreamsBrokerageModel(accountType);
+
+                case BrokerageName.Zerodha:
+                    return new ZerodhaBrokerageModel(accountType);
+                
+                case BrokerageName.Atreyu:
+                    return new AtreyuBrokerageModel(accountType);
+
+                case BrokerageName.TradingTechnologies:
+                    return new TradingTechnologiesBrokerageModel(accountType);
 
                 default:
                     throw new ArgumentOutOfRangeException(nameof(brokerage), brokerage, null);

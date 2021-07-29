@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -18,10 +18,22 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Newtonsoft.Json;
+using NodaTime;
 using NUnit.Framework;
 using Python.Runtime;
+using QuantConnect.Algorithm;
+using QuantConnect.Algorithm.Framework.Alphas;
+using QuantConnect.Data;
+using QuantConnect.Data.Auxiliary;
 using QuantConnect.Data.Market;
+using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Indicators;
+using QuantConnect.Lean.Engine.DataFeeds;
+using QuantConnect.Lean.Engine.HistoricalData;
+using QuantConnect.Orders;
+using QuantConnect.Orders.Fees;
+using QuantConnect.Packets;
+using QuantConnect.Scheduling;
 using QuantConnect.Securities;
 
 namespace QuantConnect.Tests.Common.Util
@@ -29,6 +41,120 @@ namespace QuantConnect.Tests.Common.Util
     [TestFixture]
     public class ExtensionsTests
     {
+        [TestCase("A", "a")]
+        [TestCase("", "")]
+        [TestCase(null, null)]
+        [TestCase("Buy", "buy")]
+        [TestCase("BuyTheDip", "buyTheDip")]
+        public void ToCamelCase(string toConvert, string expected)
+        {
+            Assert.AreEqual(expected, toConvert.ToCamelCase());
+        }
+
+        [Test]
+        public void BatchAlphaResultPacket()
+        {
+            var btcusd = Symbol.Create("BTCUSD", SecurityType.Crypto, Market.GDAX);
+            var insights = new List<Insight>
+            {
+                new Insight(DateTime.UtcNow, btcusd, Time.OneMillisecond, InsightType.Price, InsightDirection.Up, 1, 2, "sourceModel1"),
+                new Insight(DateTime.UtcNow, btcusd, Time.OneSecond, InsightType.Price, InsightDirection.Down, 1, 2, "sourceModel1")
+            };
+            var orderEvents = new List<OrderEvent>
+            {
+                new OrderEvent(1, btcusd, DateTime.UtcNow, OrderStatus.Submitted, OrderDirection.Buy, 0, 0, OrderFee.Zero, message: "OrderEvent1"),
+                new OrderEvent(1, btcusd, DateTime.UtcNow, OrderStatus.Filled, OrderDirection.Buy, 1, 1000, OrderFee.Zero, message: "OrderEvent2")
+            };
+            var orders = new List<Order> { new MarketOrder(btcusd, 1000, DateTime.UtcNow, "ExpensiveOrder") { Id = 1 } };
+
+            var packet1 = new AlphaResultPacket("1", 1, insights: insights);
+            var packet2 = new AlphaResultPacket("1", 1, orders: orders);
+            var packet3 = new AlphaResultPacket("1", 1, orderEvents: orderEvents);
+
+            var result = new List<AlphaResultPacket> { packet1, packet2, packet3 }.Batch();
+
+            Assert.AreEqual(2, result.Insights.Count);
+            Assert.AreEqual(2, result.OrderEvents.Count);
+            Assert.AreEqual(1, result.Orders.Count);
+
+            Assert.IsTrue(result.Insights.SequenceEqual(insights));
+            Assert.IsTrue(result.OrderEvents.SequenceEqual(orderEvents));
+            Assert.IsTrue(result.Orders.SequenceEqual(orders));
+
+            Assert.IsNull(new List<AlphaResultPacket>().Batch());
+        }
+
+        [Test]
+        public void BatchAlphaResultPacketDuplicateOrder()
+        {
+            var btcusd = Symbol.Create("BTCUSD", SecurityType.Crypto, Market.GDAX);
+            var orders = new List<Order>
+            {
+                new MarketOrder(btcusd, 1000, DateTime.UtcNow, "ExpensiveOrder") { Id = 1 },
+                new MarketOrder(btcusd, 100, DateTime.UtcNow, "ExpensiveOrder") { Id = 2 },
+                new MarketOrder(btcusd, 2000, DateTime.UtcNow, "ExpensiveOrder") { Id = 1 },
+                new MarketOrder(btcusd, 10, DateTime.UtcNow, "ExpensiveOrder") { Id = 3 },
+                new MarketOrder(btcusd, 3000, DateTime.UtcNow, "ExpensiveOrder") { Id = 1 }
+            };
+            var orders2 = new List<Order>
+            {
+                new MarketOrder(btcusd, 200, DateTime.UtcNow, "ExpensiveOrder") { Id = 2 },
+                new MarketOrder(btcusd, 20, DateTime.UtcNow, "ExpensiveOrder") { Id = 3 }
+            };
+
+            var packet1 = new AlphaResultPacket("1", 1, orders: orders);
+            var packet2 = new AlphaResultPacket("1", 1, orders: orders2);
+
+            var result = new List<AlphaResultPacket> { packet1, packet2 }.Batch();
+
+            // we expect just 1 order instance per order id
+            Assert.AreEqual(3, result.Orders.Count);
+            Assert.IsTrue(result.Orders.Any(order => order.Id == 1 && order.Quantity == 3000));
+            Assert.IsTrue(result.Orders.Any(order => order.Id == 2 && order.Quantity == 200));
+            Assert.IsTrue(result.Orders.Any(order => order.Id == 3 && order.Quantity == 20));
+
+            var expected = new List<Order> { orders[4], orders2[0], orders2[1] };
+            Assert.IsTrue(result.Orders.SequenceEqual(expected));
+        }
+
+        [Test]
+        public void SeriesIsNotEmpty()
+        {
+            var series = new Series("SadSeries")
+                { Values = new List<ChartPoint> { new ChartPoint(1, 1) } };
+
+            Assert.IsFalse(series.IsEmpty());
+        }
+
+        [Test]
+        public void SeriesIsEmpty()
+        {
+            Assert.IsTrue((new Series("Cat")).IsEmpty());
+        }
+
+        [Test]
+        public void ChartIsEmpty()
+        {
+            Assert.IsTrue((new Chart("HappyChart")).IsEmpty());
+        }
+
+        [Test]
+        public void ChartIsEmptyWithEmptySeries()
+        {
+            Assert.IsTrue((new Chart("HappyChart")
+                { Series = new Dictionary<string, Series> { { "SadSeries", new Series("SadSeries") } }}).IsEmpty());
+        }
+
+        [Test]
+        public void ChartIsNotEmptyWithNonEmptySeries()
+        {
+            var series = new Series("SadSeries")
+                { Values = new List<ChartPoint> { new ChartPoint(1, 1) } };
+
+            Assert.IsFalse((new Chart("HappyChart")
+                { Series = new Dictionary<string, Series> { { "SadSeries", series } } }).IsEmpty());
+        }
+
         [Test]
         public void IsSubclassOfGenericWorksWorksForNonGenericType()
         {
@@ -87,6 +213,31 @@ namespace QuantConnect.Tests.Common.Util
         }
 
         [Test]
+        public void ConvertToSkipsDiscontinuitiesBecauseOfDaylightSavingsStart_AddingOneHour()
+        {
+            var expected = new DateTime(2014, 3, 9, 3, 0, 0);
+            var time = new DateTime(2014, 3, 9, 2, 0, 0).ConvertTo(TimeZones.NewYork, TimeZones.NewYork);
+            var time2 = new DateTime(2014, 3, 9, 2, 0, 1).ConvertTo(TimeZones.NewYork, TimeZones.NewYork);
+            Assert.AreEqual(expected, time);
+            Assert.AreEqual(expected, time2);
+        }
+
+        [Test]
+        public void ConvertToIgnoreDaylightSavingsEnd_SubtractingOneHour()
+        {
+            var time1Expected = new DateTime(2014, 11, 2, 1, 59, 59);
+            var time2Expected = new DateTime(2014, 11, 2, 2, 0, 0);
+            var time3Expected = new DateTime(2014, 11, 2, 2, 0, 1);
+            var time1 = time1Expected.ConvertTo(TimeZones.NewYork, TimeZones.NewYork);
+            var time2 = time2Expected.ConvertTo(TimeZones.NewYork, TimeZones.NewYork);
+            var time3 = time3Expected.ConvertTo(TimeZones.NewYork, TimeZones.NewYork);
+
+            Assert.AreEqual(time1Expected, time1);
+            Assert.AreEqual(time2Expected, time2);
+            Assert.AreEqual(time3Expected, time3);
+        }
+
+        [Test]
         public void ExchangeRoundDownInTimeZoneSkipsWeekends()
         {
             // moment before EST market open in UTC (time + one day)
@@ -98,9 +249,206 @@ namespace QuantConnect.Tests.Common.Util
         }
 
         [Test]
+        // This unit test reproduces a fixed infinite loop situation, due to a daylight saving time change, in ExchangeRoundDownInTimeZone, GH issue 2368.
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_AddingOneHour_UTC()
+        {
+            var time = new DateTime(2014, 3, 9, 16, 0, 1);
+            var expected = new DateTime(2014, 3, 7, 16, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.Utc, false);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        // This unit test reproduces a fixed infinite loop situation, due to a daylight saving time change, in ExchangeRoundDownInTimeZone, GH issue 2368.
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_UTC()
+        {
+            var time = new DateTime(2014, 11, 2, 2, 0, 1);
+            var expected = new DateTime(2014, 10, 31, 16, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.Utc, false);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_AddingOneHour_ExtendedHours_UTC()
+        {
+            var time = new DateTime(2014, 3, 9, 2, 0, 1);
+            var expected = new DateTime(2014, 3, 9, 2, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.GDAX, null, SecurityType.Crypto);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.Utc, true);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_ExtendedHours_UTC()
+        {
+            var time = new DateTime(2014, 11, 2, 2, 0, 1);
+            var expected = new DateTime(2014, 11, 2, 2, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.GDAX, null, SecurityType.Crypto);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.Utc, true);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        // this unit test reproduces a fixed infinite loop situation, due to a daylight saving time change, GH issue 3707.
+        public void RoundDownInTimeZoneAroundDaylightTimeChanges()
+        {
+            // sydney time advanced Sunday, 6 October 2019, 02:00:00 clocks were turned forward 1 hour to
+            // Sunday, 6 October 2019, 03:00:00 local daylight time instead.
+            var timeAt = new DateTime(2019, 10, 6, 10, 0, 0);
+            var expected = new DateTime(2019, 10, 5, 10, 0, 0);
+
+            var exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneDay, TimeZones.Sydney, TimeZones.Utc);
+            // even though there is an entire 'roundingInterval' unit (1 day) between 'timeAt' and 'expected' round down
+            // is affected by daylight savings and rounds down the timeAt
+            Assert.AreEqual(expected, exchangeRoundedAt);
+
+            timeAt = new DateTime(2019, 10, 7, 10, 0, 0);
+            expected = new DateTime(2019, 10, 6, 11, 0, 0);
+
+            exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneDay, TimeZones.Sydney, TimeZones.Utc);
+            Assert.AreEqual(expected, exchangeRoundedAt);
+        }
+
+        [Test]
+        public void RoundDownInTimeZoneReturnsCorrectValuesAroundDaylightTimeChanges_AddingOneHour_UTC()
+        {
+            var timeAt = new DateTime(2014, 3, 9, 2, 0, 0);
+            var timeAfter = new DateTime(2014, 3, 9, 2, 0, 1);
+            var timeBefore = new DateTime(2014, 3, 9, 1, 59, 59);
+            var timeAfterDaylightTimeChanges = new DateTime(2014, 3, 9, 3, 0, 0);
+
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+
+            var exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedAfter = timeAfter.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedBefore = timeBefore.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedAfterDaylightTimeChanges = timeAfterDaylightTimeChanges.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+
+            var expected = new DateTime(2014, 3, 9, 3, 0, 0);
+            Assert.AreEqual(expected, exchangeRoundedAt);
+            Assert.AreEqual(expected, exchangeRoundedAfter);
+            Assert.AreEqual(timeBefore, exchangeRoundedBefore);
+            Assert.AreEqual(expected, exchangeRoundedAfterDaylightTimeChanges);
+        }
+
+        [Test]
+        public void RoundDownInTimeZoneReturnsCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_UTC()
+        {
+            var timeAt = new DateTime(2014, 11, 2, 2, 0, 0);
+            var timeAfter = new DateTime(2014, 11, 2, 2, 0, 1);
+            var timeBefore = new DateTime(2014, 11, 2, 1, 59, 59);
+            var timeAfterDaylightTimeChanges = new DateTime(2014, 11, 2, 3, 0, 0);
+
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+
+            var exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedAfter = timeAfter.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedBefore = timeBefore.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+            var exchangeRoundedAfterDaylightTimeChanges = timeAfterDaylightTimeChanges.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.Utc);
+
+            Assert.AreEqual(timeAt, exchangeRoundedAt);
+            Assert.AreEqual(timeAfter, exchangeRoundedAfter);
+            Assert.AreEqual(timeBefore, exchangeRoundedBefore);
+            Assert.AreEqual(timeAfterDaylightTimeChanges, exchangeRoundedAfterDaylightTimeChanges);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_AddingOneHour_NewYork()
+        {
+            var time = new DateTime(2014, 3, 9, 16, 0, 1);
+            var expected = new DateTime(2014, 3, 7, 16, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.NewYork, false);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_NewYork()
+        {
+            var time = new DateTime(2014, 11, 2, 2, 0, 1);
+            var expected = new DateTime(2014, 10, 31, 16, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.NewYork, false);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_AddingOneHour_ExtendedHours_NewYork()
+        {
+            var time = new DateTime(2014, 3, 9, 2, 0, 1);
+            var expected = new DateTime(2014, 3, 9, 2, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.GDAX, null, SecurityType.Crypto);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.NewYork, true);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void ExchangeRoundDownInTimeZoneCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_ExtendedHours_NewYork()
+        {
+            var time = new DateTime(2014, 11, 2, 2, 0, 1);
+            var expected = new DateTime(2014, 11, 2, 2, 0, 0);
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.GDAX, null, SecurityType.Crypto);
+            var exchangeRounded = time.ExchangeRoundDownInTimeZone(Time.OneHour, hours, TimeZones.NewYork, true);
+            Assert.AreEqual(expected, exchangeRounded);
+        }
+
+        [Test]
+        public void RoundDownInTimeZoneReturnsCorrectValuesAroundDaylightTimeChanges_AddingOneHour_NewYork()
+        {
+            var timeAt = new DateTime(2014, 3, 9, 2, 0, 0);
+            var timeAfter = new DateTime(2014, 3, 9, 2, 0, 1);
+            var timeBefore = new DateTime(2014, 3, 9, 1, 59, 59);
+            var timeAfterDaylightTimeChanges = new DateTime(2014, 3, 9, 3, 0, 0);
+
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+
+            var exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedAfter = timeAfter.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedBefore = timeBefore.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedAfterDaylightTimeChanges = timeAfterDaylightTimeChanges.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+
+            var expected = new DateTime(2014, 3, 9, 3, 0, 0);
+            Assert.AreEqual(expected, exchangeRoundedAt);
+            Assert.AreEqual(expected, exchangeRoundedAfter);
+            Assert.AreEqual(timeBefore, exchangeRoundedBefore);
+            Assert.AreEqual(expected, exchangeRoundedAfterDaylightTimeChanges);
+        }
+
+        [Test]
+        public void RoundDownInTimeZoneReturnsCorrectValuesAroundDaylightTimeChanges_SubtractingOneHour_NewYork()
+        {
+            var timeAt = new DateTime(2014, 11, 2, 2, 0, 0);
+            var timeAfter = new DateTime(2014, 11, 2, 2, 0, 1);
+            var timeBefore = new DateTime(2014, 11, 2, 1, 59, 59);
+            var timeAfterDaylightTimeChanges = new DateTime(2014, 11, 2, 3, 0, 0);
+
+            var hours = MarketHoursDatabase.FromDataFolder().GetExchangeHours(Market.Oanda, null, SecurityType.Forex);
+
+            var exchangeRoundedAt = timeAt.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedAfter = timeAfter.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedBefore = timeBefore.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+            var exchangeRoundedAfterDaylightTimeChanges = timeAfterDaylightTimeChanges.RoundDownInTimeZone(Time.OneSecond, hours.TimeZone, TimeZones.NewYork);
+
+            Assert.AreEqual(timeAt, exchangeRoundedAt);
+            Assert.AreEqual(timeAfter, exchangeRoundedAfter);
+            Assert.AreEqual(timeBefore, exchangeRoundedBefore);
+            Assert.AreEqual(timeAfterDaylightTimeChanges, exchangeRoundedAfterDaylightTimeChanges);
+        }
+
+        [Test]
         public void ConvertsInt32FromString()
         {
             const string input = "12345678";
+            var value = input.ToInt32();
+            Assert.AreEqual(12345678, value);
+        }
+
+        [Test]
+        public void ConvertsInt32FromStringWithDecimalTruncation()
+        {
+            const string input = "12345678.9";
             var value = input.ToInt32();
             Assert.AreEqual(12345678, value);
         }
@@ -111,6 +459,49 @@ namespace QuantConnect.Tests.Common.Util
             const string input = "12345678900";
             var value = input.ToInt64();
             Assert.AreEqual(12345678900, value);
+        }
+
+        [Test]
+        public void ConvertsInt64FromStringWithDecimalTruncation()
+        {
+            const string input = "12345678900.12";
+            var value = input.ToInt64();
+            Assert.AreEqual(12345678900, value);
+        }
+
+        [Test]
+        public void ToCsvDataParsesCorrectly()
+        {
+            var csv = "\"hello\",\"world\"".ToCsvData();
+            Assert.AreEqual(2, csv.Count);
+            Assert.AreEqual("\"hello\"", csv[0]);
+            Assert.AreEqual("\"world\"", csv[1]);
+
+            var csv2 = "1,2,3,4".ToCsvData();
+            Assert.AreEqual(4, csv2.Count);
+            Assert.AreEqual("1", csv2[0]);
+            Assert.AreEqual("2", csv2[1]);
+            Assert.AreEqual("3", csv2[2]);
+            Assert.AreEqual("4", csv2[3]);
+        }
+
+        [Test]
+        public void ToCsvDataParsesEmptyFinalValue()
+        {
+            var line = "\"hello\",world,";
+            var csv = line.ToCsvData();
+
+            Assert.AreEqual(3, csv.Count);
+            Assert.AreEqual("\"hello\"", csv[0]);
+            Assert.AreEqual("hello", csv[0].Trim('"'));
+            Assert.AreEqual("world", csv[1]);
+            Assert.AreEqual(string.Empty, csv[2]);
+        }
+
+        [Test]
+        public void ToCsvDataParsesEmptyValue()
+        {
+            Assert.AreEqual(string.Empty, string.Empty.ToCsvData()[0]);
         }
 
         [Test]
@@ -217,6 +608,17 @@ namespace QuantConnect.Tests.Common.Util
             Assert.AreEqual(-0m, value);
         }
 
+        [TestCase("1.23%", 0.0123d)]
+        [TestCase("-1.23%", -0.0123d)]
+        [TestCase("31.2300%", 0.3123d)]
+        [TestCase("20%", 0.2d)]
+        [TestCase("-20%", -0.2d)]
+        [TestCase("220%", 2.2d)]
+        public void ConvertsPercent(string input, double expected)
+        {
+            Assert.AreEqual(new decimal(expected), input.ToNormalizedDecimal());
+        }
+
         [Test]
         public void ConvertsTimeSpanFromString()
         {
@@ -281,6 +683,28 @@ namespace QuantConnect.Tests.Common.Util
             Assert.AreEqual(decimal.MinValue, output);
         }
 
+        [TestCase(Language.CSharp, double.NaN)]
+        [TestCase(Language.Python, double.NaN)]
+        [TestCase(Language.CSharp, double.NegativeInfinity)]
+        [TestCase(Language.Python, double.NegativeInfinity)]
+        [TestCase(Language.CSharp, double.PositiveInfinity)]
+        [TestCase(Language.Python, double.PositiveInfinity)]
+        public void SafeDecimalCastThrowsArgumentException(Language language, double number)
+        {
+            if (language == Language.CSharp)
+            {
+                Assert.Throws<ArgumentException>(() => number.SafeDecimalCast());
+                return;
+            }
+
+            using (Py.GIL())
+            {
+                var pyNumber = number.ToPython();
+                var csNumber = pyNumber.As<double>();
+                Assert.Throws<ArgumentException>(() => csNumber.SafeDecimalCast());
+            }
+        }
+
         [Test]
         [TestCase(1.200, "1.2")]
         [TestCase(1200, "1200")]
@@ -288,7 +712,17 @@ namespace QuantConnect.Tests.Common.Util
         public void NormalizeDecimalReturnsNoTrailingZeros(decimal input, string expectedOutput)
         {
             var output = input.Normalize();
-            Assert.AreEqual(expectedOutput, output.ToString(CultureInfo.InvariantCulture));
+            Assert.AreEqual(expectedOutput, output.ToStringInvariant());
+        }
+
+        [Test]
+        [TestCase(0.072842, 3, "0.0728")]
+        [TestCase(0.0019999, 2, "0.0020")]
+        [TestCase(0.01234568423, 6, "0.0123457")]
+        public void RoundToSignificantDigits(decimal input, int digits, string expectedOutput)
+        {
+            var output = input.RoundToSignificantDigits(digits).ToStringInvariant();
+            Assert.AreEqual(expectedOutput, output);
         }
 
         [Test]
@@ -334,7 +768,7 @@ namespace QuantConnect.Tests.Common.Util
             Assert.AreNotEqual(expected, actual);
         }
 
-        [Test, Ignore]
+        [Test]
         public void PyObjectTryConvertQuoteBar()
         {
             // Wrap a QuoteBar around a PyObject and convert it back
@@ -347,7 +781,7 @@ namespace QuantConnect.Tests.Common.Util
             Assert.IsAssignableFrom<QuoteBar>(quoteBar);
         }
 
-        [Test, Ignore]
+        [Test]
         public void PyObjectTryConvertSMA()
         {
             // Wrap a SimpleMovingAverage around a PyObject and convert it back
@@ -360,7 +794,7 @@ namespace QuantConnect.Tests.Common.Util
             Assert.IsAssignableFrom<SimpleMovingAverage>(indicatorBaseDataPoint);
         }
 
-        [Test, Ignore]
+        [Test]
         public void PyObjectTryConvertATR()
         {
             // Wrap a AverageTrueRange around a PyObject and convert it back
@@ -373,7 +807,7 @@ namespace QuantConnect.Tests.Common.Util
             Assert.IsAssignableFrom<AverageTrueRange>(indicatorBaseDataBar);
         }
 
-        [Test, Ignore]
+        [Test]
         public void PyObjectTryConvertAD()
         {
             // Wrap a AccumulationDistribution around a PyObject and convert it back
@@ -384,10 +818,26 @@ namespace QuantConnect.Tests.Common.Util
             Assert.IsTrue(canConvert);
             Assert.IsNotNull(indicatorBaseTradeBar);
             Assert.IsAssignableFrom<AccumulationDistribution>(indicatorBaseTradeBar);
-
         }
 
-        [Test, Ignore]
+        [Test]
+        public void PyObjectTryConvertSymbolArray()
+        {
+            PyObject value;
+            using (Py.GIL())
+            {
+                // Wrap a Symbol Array around a PyObject and convert it back
+                value = new PyList(new[] { Symbols.SPY.ToPython(), Symbols.AAPL.ToPython() });
+            }
+
+            Symbol[] symbols;
+            var canConvert = value.TryConvert(out symbols);
+            Assert.IsTrue(canConvert);
+            Assert.IsNotNull(symbols);
+            Assert.IsAssignableFrom<Symbol[]>(symbols);
+        }
+
+        [Test]
         public void PyObjectTryConvertFailCSharp()
         {
             // Try to convert a AccumulationDistribution as a QuoteBar
@@ -399,14 +849,15 @@ namespace QuantConnect.Tests.Common.Util
             Assert.IsNull(quoteBar);
         }
 
-        [Test, Ignore]
+        [Test]
         public void PyObjectTryConvertFailPython()
         {
             using (Py.GIL())
             {
                 // Try to convert a python object as a IndicatorBase<TradeBar>
-                var module = PythonEngine.ModuleFromString(Guid.NewGuid().ToString(), "class A:\n    pass");
-                var value = module.GetAttr("A").Invoke();
+                var locals = new PyDict();
+                PythonEngine.Exec("class A:\n    pass", null, locals.Handle);
+                var value = locals.GetItem("A").Invoke();
 
                 IndicatorBase<TradeBar> indicatorBaseTradeBar;
                 bool canConvert = value.TryConvert(out indicatorBaseTradeBar);
@@ -414,6 +865,227 @@ namespace QuantConnect.Tests.Common.Util
                 Assert.IsNull(indicatorBaseTradeBar);
             }
         }
+
+        [Test]
+        [TestCase("coarseSelector = lambda coarse: [ x.Symbol for x in coarse if x.Price % 2 == 0 ]")]
+        [TestCase("def coarseSelector(coarse): return [ x.Symbol for x in coarse if x.Price % 2 == 0 ]")]
+        public void PyObjectTryConvertToFunc(string code)
+        {
+            Func<IEnumerable<CoarseFundamental>, Symbol[]> coarseSelector;
+
+            using (Py.GIL())
+            {
+                var locals = new PyDict();
+                PythonEngine.Exec(code, null, locals.Handle);
+                var pyObject = locals.GetItem("coarseSelector");
+                pyObject.TryConvertToDelegate(out coarseSelector);
+            }
+
+            var coarse = Enumerable
+                .Range(0, 9)
+                .Select(x => new CoarseFundamental { Symbol = Symbol.Create(x.ToStringInvariant(), SecurityType.Equity, Market.USA), Value = x });
+
+            var symbols = coarseSelector(coarse);
+
+            Assert.AreEqual(5, symbols.Length);
+            foreach (var symbol in symbols)
+            {
+                var price = symbol.Value.ConvertInvariant<int>();
+                Assert.AreEqual(0, price % 2);
+            }
+        }
+
+        [Test]
+        public void PyObjectTryConvertToAction1()
+        {
+            Action<int> action;
+
+            using (Py.GIL())
+            {
+                var locals = new PyDict();
+                PythonEngine.Exec("def raise_number(a): raise ValueError(a)", null, locals.Handle);
+                var pyObject = locals.GetItem("raise_number");
+                pyObject.TryConvertToDelegate(out action);
+            }
+
+            try
+            {
+                action(2);
+                Assert.Fail();
+            }
+            catch (PythonException e)
+            {
+                Assert.AreEqual($"ValueError : {2}", e.Message);
+            }
+        }
+
+        [Test]
+        public void PyObjectTryConvertToAction2()
+        {
+            Action<int, decimal> action;
+
+            using (Py.GIL())
+            {
+                var locals = new PyDict();
+                PythonEngine.Exec("def raise_number(a, b): raise ValueError(a * b)", null, locals.Handle);
+                var pyObject = locals.GetItem("raise_number");
+                pyObject.TryConvertToDelegate(out action);
+            }
+
+            try
+            {
+                action(2, 3m);
+                Assert.Fail();
+            }
+            catch (PythonException e)
+            {
+                Assert.AreEqual("ValueError : 6.0", e.Message);
+            }
+        }
+
+        [Test]
+        public void PyObjectTryConvertToNonDelegateFail()
+        {
+            int action;
+
+            using (Py.GIL())
+            {
+                var locals = new PyDict();
+                PythonEngine.Exec("def raise_number(a, b): raise ValueError(a * b)", null, locals.Handle);
+                var pyObject = locals.GetItem("raise_number");
+                Assert.Throws<ArgumentException>(() => pyObject.TryConvertToDelegate(out action));
+            }
+        }
+
+        [Test]
+        public void PyObjectStringConvertToSymbolEnumerable()
+        {
+            SymbolCache.Clear();
+            SymbolCache.Set("SPY", Symbols.SPY);
+
+            IEnumerable<Symbol> symbols;
+            using (Py.GIL())
+            {
+                symbols = new PyString("SPY").ConvertToSymbolEnumerable();
+            }
+
+            Assert.AreEqual(Symbols.SPY, symbols.Single());
+        }
+
+        [Test]
+        public void PyObjectStringListConvertToSymbolEnumerable()
+        {
+            SymbolCache.Clear();
+            SymbolCache.Set("SPY", Symbols.SPY);
+
+            IEnumerable<Symbol> symbols;
+            using (Py.GIL())
+            {
+                symbols = new PyList(new[] { "SPY".ToPython() }).ConvertToSymbolEnumerable();
+            }
+
+            Assert.AreEqual(Symbols.SPY, symbols.Single());
+        }
+
+        [Test]
+        public void PyObjectSymbolConvertToSymbolEnumerable()
+        {
+            IEnumerable<Symbol> symbols;
+            using (Py.GIL())
+            {
+                symbols = Symbols.SPY.ToPython().ConvertToSymbolEnumerable();
+            }
+
+            Assert.AreEqual(Symbols.SPY, symbols.Single());
+        }
+
+        [Test]
+        public void PyObjectSymbolListConvertToSymbolEnumerable()
+        {
+            IEnumerable<Symbol> symbols;
+            using (Py.GIL())
+            {
+                symbols = new PyList(new[] {Symbols.SPY.ToPython()}).ConvertToSymbolEnumerable();
+            }
+
+            Assert.AreEqual(Symbols.SPY, symbols.Single());
+        }
+
+        [Test]
+        public void PyObjectNonSymbolObjectConvertToSymbolEnumerable()
+        {
+            using (Py.GIL())
+            {
+                Assert.Throws<ArgumentException>(() => new PyInt(1).ConvertToSymbolEnumerable().ToList());
+            }
+        }
+
+        [Test]
+        public void PyObjectDictionaryConvertToDictionary_Success()
+        {
+            using (Py.GIL())
+            {
+                var actualDictionary = PythonEngine.ModuleFromString(
+                    "PyObjectDictionaryConvertToDictionary_Success",
+                    @"
+from datetime import datetime as dt
+actualDictionary = dict()
+actualDictionary.update({'SPY': dt(2019,10,3)})
+actualDictionary.update({'QQQ': dt(2019,10,4)})
+actualDictionary.update({'IBM': dt(2019,10,5)})
+"
+                ).GetAttr("actualDictionary").ConvertToDictionary<string, DateTime>();
+
+                Assert.AreEqual(3, actualDictionary.Count);
+                var expectedDictionary = new Dictionary<string, DateTime>
+                {
+                    {"SPY", new DateTime(2019,10,3) },
+                    {"QQQ", new DateTime(2019,10,4) },
+                    {"IBM", new DateTime(2019,10,5) },
+                };
+
+                foreach (var kvp in expectedDictionary)
+                {
+                    Assert.IsTrue(actualDictionary.ContainsKey(kvp.Key));
+                    var actual = actualDictionary[kvp.Key];
+                    Assert.AreEqual(kvp.Value, actual);
+                }
+            }
+        }
+
+        [Test]
+        public void PyObjectDictionaryConvertToDictionary_FailNotDictionary()
+        {
+            using (Py.GIL())
+            {
+                var pyObject = PythonEngine.ModuleFromString(
+                    "PyObjectDictionaryConvertToDictionary_FailNotDictionary",
+                    "actualDictionary = list()"
+                ).GetAttr("actualDictionary");
+
+                Assert.Throws<ArgumentException>(() => pyObject.ConvertToDictionary<string, DateTime>());
+            }
+        }
+
+        [Test]
+        public void PyObjectDictionaryConvertToDictionary_FailWrongItemType()
+        {
+            using (Py.GIL())
+            {
+                var pyObject = PythonEngine.ModuleFromString(
+                    "PyObjectDictionaryConvertToDictionary_FailWrongItemType",
+                    @"
+actualDictionary = dict()
+actualDictionary.update({'SPY': 3})
+actualDictionary.update({'QQQ': 4})
+actualDictionary.update({'IBM': 5})
+"
+                ).GetAttr("actualDictionary");
+
+                Assert.Throws<ArgumentException>(() => pyObject.ConvertToDictionary<string, DateTime>());
+            }
+        }
+
 
         [Test]
         public void BatchByDoesNotDropItems()
@@ -427,6 +1099,256 @@ namespace QuantConnect.Tests.Common.Util
             CollectionAssert.AreEqual(list, by2.SelectMany(x => x));
         }
 
+        [Test]
+        public void ToOrderTicketCreatesCorrectTicket()
+        {
+            var orderRequest = new SubmitOrderRequest(OrderType.Limit, SecurityType.Equity, Symbols.USDJPY, 1000, 0, 1.11m, DateTime.Now, "Pepe");
+            var order = Order.CreateOrder(orderRequest);
+            order.Status = OrderStatus.Submitted;
+            order.Id = 11;
+            var orderTicket = order.ToOrderTicket(null);
+            Assert.AreEqual(order.Id, orderTicket.OrderId);
+            Assert.AreEqual(order.Quantity, orderTicket.Quantity);
+            Assert.AreEqual(order.Status, orderTicket.Status);
+            Assert.AreEqual(order.Type, orderTicket.OrderType);
+            Assert.AreEqual(order.Symbol, orderTicket.Symbol);
+            Assert.AreEqual(order.Tag, orderTicket.Tag);
+            Assert.AreEqual(order.Time, orderTicket.Time);
+            Assert.AreEqual(order.SecurityType, orderTicket.SecurityType);
+        }
+
+        [TestCase(4000, "4K")]
+        [TestCase(4103, "4.1K")]
+        [TestCase(40000, "40K")]
+        [TestCase(45321, "45.3K")]
+        [TestCase(654321, "654K")]
+        [TestCase(600031, "600K")]
+        [TestCase(1304303, "1.3M")]
+        [TestCase(2600000, "2.6M")]
+        [TestCase(26000000, "26M")]
+        [TestCase(260000000, "260M")]
+        [TestCase(2600000000, "2.6B")]
+        [TestCase(26000000000, "26B")]
+        public void ToFinancialFigures(double number, string expected)
+        {
+            var value = ((decimal)number).ToFinancialFigures();
+            Assert.AreEqual(expected, value);
+        }
+
+        [Test]
+        public void DecimalTruncateTo3DecimalPlaces()
+        {
+            var value = 10.999999m;
+            Assert.AreEqual(10.999m, value.TruncateTo3DecimalPlaces());
+        }
+
+        [Test]
+        public void DecimalTruncateTo3DecimalPlacesDoesNotThrowException()
+        {
+            var value = decimal.MaxValue;
+            Assert.DoesNotThrow(() => value.TruncateTo3DecimalPlaces());
+
+            value = decimal.MinValue;
+            Assert.DoesNotThrow(() => value.TruncateTo3DecimalPlaces());
+
+            value = decimal.MaxValue - 1;
+            Assert.DoesNotThrow(() => value.TruncateTo3DecimalPlaces());
+
+            value = decimal.MinValue + 1;
+            Assert.DoesNotThrow(() => value.TruncateTo3DecimalPlaces());
+        }
+
+        [Test]
+        public void DecimalAllowExponentTests()
+        {
+            const string strWithExponent = "5e-5";
+            Assert.AreEqual(strWithExponent.ToDecimalAllowExponent(), 0.00005);
+            Assert.AreNotEqual(strWithExponent.ToDecimal(), 0.00005);
+            Assert.AreEqual(strWithExponent.ToDecimal(), 10275);
+        }
+
+        [Test]
+        public void DateRulesToFunc()
+        {
+            var dateRules = new DateRules(new SecurityManager(
+                new TimeKeeper(new DateTime(2015, 1, 1), DateTimeZone.Utc)), DateTimeZone.Utc);
+            var first = new DateTime(2015, 1, 10);
+            var second = new DateTime(2015, 1, 30);
+            var dateRule = dateRules.On(first, second);
+            var func = dateRule.ToFunc();
+
+            Assert.AreEqual(first, func(new DateTime(2015, 1, 1)));
+            Assert.AreEqual(first, func(new DateTime(2015, 1, 5)));
+            Assert.AreEqual(second, func(first));
+            Assert.AreEqual(Time.EndOfTime, func(second));
+            Assert.AreEqual(Time.EndOfTime, func(second));
+        }
+
+        [Test]
+        [TestCase(OptionRight.Call, true, OrderDirection.Sell)]
+        [TestCase(OptionRight.Call, false, OrderDirection.Buy)]
+        [TestCase(OptionRight.Put, true, OrderDirection.Buy)]
+        [TestCase(OptionRight.Put, false, OrderDirection.Sell)]
+        public void GetsExerciseDirection(OptionRight right, bool isShort, OrderDirection expected)
+        {
+            var actual = right.GetExerciseDirection(isShort);
+            Assert.AreEqual(expected, actual);
+        }
+
+        [Test]
+        public void AppliesScalingToEquityTickQuotes()
+        {
+            // This test ensures that all Ticks with TickType == TickType.Quote have adjusted BidPrice and AskPrice.
+            // Relevant issue: https://github.com/QuantConnect/Lean/issues/4788
+
+            var algo = new QCAlgorithm();
+            var dataFeed = new NullDataFeed();
+
+            algo.SubscriptionManager = new SubscriptionManager();
+            algo.SubscriptionManager.SetDataManager(new DataManager(
+                dataFeed,
+                new UniverseSelection(
+                    algo,
+                    new SecurityService(
+                        new CashBook(),
+                        MarketHoursDatabase.FromDataFolder(),
+                        SymbolPropertiesDatabase.FromDataFolder(),
+                        algo,
+                        null,
+                        null
+                    ),
+                    new DataPermissionManager(),
+                    new DefaultDataProvider()
+                ),
+                algo,
+                new TimeKeeper(DateTime.UtcNow),
+                MarketHoursDatabase.FromDataFolder(),
+                false,
+                null,
+                new DataPermissionManager()
+            ));
+
+            using (var zipDataCacheProvider = new ZipDataCacheProvider(new DefaultDataProvider()))
+            {
+                algo.HistoryProvider = new SubscriptionDataReaderHistoryProvider();
+                algo.HistoryProvider.Initialize(
+                    new HistoryProviderInitializeParameters(
+                        null,
+                        null,
+                        null,
+                        zipDataCacheProvider,
+                        new LocalDiskMapFileProvider(),
+                        new LocalDiskFactorFileProvider(),
+                        (_) => {},
+                        false,
+                        new DataPermissionManager()));
+
+                algo.SetStartDate(DateTime.UtcNow.AddDays(-1));
+
+                var history = algo.History(new[] { Symbols.IBM }, new DateTime(2013, 10, 7), new DateTime(2013, 10, 8), Resolution.Tick).ToList();
+                Assert.AreEqual(57460, history.Count);
+
+                foreach (var slice in history)
+                {
+                    if (!slice.Ticks.ContainsKey(Symbols.IBM))
+                    {
+                        continue;
+                    }
+
+                    foreach (var tick in slice.Ticks[Symbols.IBM])
+                    {
+                        if (tick.BidPrice != 0)
+                        {
+                            Assert.LessOrEqual(Math.Abs(tick.Value - tick.BidPrice), 0.05);
+                        }
+                        if (tick.AskPrice != 0)
+                        {
+                            Assert.LessOrEqual(Math.Abs(tick.Value - tick.AskPrice), 0.05);
+                        }
+                    }
+                }
+            }
+        }
+
+        [Test]
+        [TestCase(PositionSide.Long, OrderDirection.Buy)]
+        [TestCase(PositionSide.Short, OrderDirection.Sell)]
+        [TestCase(PositionSide.None, OrderDirection.Hold)]
+        public void ToOrderDirection(PositionSide side, OrderDirection expected)
+        {
+            Assert.AreEqual(expected, side.ToOrderDirection());
+        }
+
+        [Test]
+        [TestCase(OrderDirection.Buy, PositionSide.Long, false)]
+        [TestCase(OrderDirection.Buy, PositionSide.Short, true)]
+        [TestCase(OrderDirection.Buy, PositionSide.None, false)]
+        [TestCase(OrderDirection.Sell, PositionSide.Long, true)]
+        [TestCase(OrderDirection.Sell, PositionSide.Short, false)]
+        [TestCase(OrderDirection.Sell, PositionSide.None, false)]
+        [TestCase(OrderDirection.Hold, PositionSide.Long, false)]
+        [TestCase(OrderDirection.Hold, PositionSide.Short, false)]
+        [TestCase(OrderDirection.Hold, PositionSide.None, false)]
+        public void Closes(OrderDirection direction, PositionSide side, bool expected)
+        {
+            Assert.AreEqual(expected, direction.Closes(side));
+        }
+
+        [Test]
+        public void ListEquals()
+        {
+            var left = new[] {1, 2, 3};
+            var right = new[] {1, 2, 3};
+            Assert.IsTrue(left.ListEquals(right));
+
+            right[2] = 4;
+            Assert.IsFalse(left.ListEquals(right));
+        }
+
+        [Test]
+        public void GetListHashCode()
+        {
+            var ints1 = new[] {1, 2, 3};
+            var ints2 = new[] {1, 3, 2};
+            var longs = new[] {1L, 2L, 3L};
+            var decimals = new[] {1m, 2m, 3m};
+
+            // ordering dependent
+            Assert.AreNotEqual(ints1.GetListHashCode(), ints2.GetListHashCode());
+
+            Assert.AreEqual(ints1.GetListHashCode(), decimals.GetListHashCode());
+
+            // known type collision - long has same hash code as int within the int range
+            // we could take a hash of typeof(T) but this would require ListEquals to enforce exact types
+            // and we would prefer to allow typeof(T)'s GetHashCode and Equals to make this determination.
+            Assert.AreEqual(ints1.GetListHashCode(), longs.GetListHashCode());
+
+            // deterministic
+            Assert.AreEqual(ints1.GetListHashCode(), new[] {1, 2, 3}.GetListHashCode());
+        }
+
+        [Test]
+        [TestCase("0.999", "0.0001", "0.999")]
+        [TestCase("0.999", "0.001", "0.999")]
+        [TestCase("0.999", "0.01", "1.000")]
+        [TestCase("0.999", "0.1", "1.000")]
+        [TestCase("0.999", "1", "1.000")]
+        [TestCase("0.999", "2", "0")]
+        [TestCase("1.0", "0.15", "1.05")]
+        [TestCase("1.05", "0.15", "1.05")]
+        [TestCase("0.975", "0.15", "1.05")]
+        [TestCase("-0.975", "0.15", "-1.05")]
+        [TestCase("-1.0", "0.15", "-1.05")]
+        [TestCase("-1.05", "0.15", "-1.05")]
+        public void DiscretelyRoundBy(string valueString, string quantaString, string expectedString)
+        {
+            var value = decimal.Parse(valueString, CultureInfo.InvariantCulture);
+            var quanta = decimal.Parse(quantaString, CultureInfo.InvariantCulture);
+            var expected = decimal.Parse(expectedString, CultureInfo.InvariantCulture);
+            var actual = value.DiscretelyRoundBy(quanta);
+            Assert.AreEqual(expected, actual);
+        }
+
         private PyObject ConvertToPyObject(object value)
         {
             using (Py.GIL())
@@ -434,7 +1356,6 @@ namespace QuantConnect.Tests.Common.Util
                 return value.ToPython();
             }
         }
-
 
         private class Super<T>
         {

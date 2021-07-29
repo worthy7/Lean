@@ -19,21 +19,17 @@ using Python.Runtime;
 using QuantConnect.Exceptions;
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace QuantConnect.Tests.Common.Exceptions
 {
-    [TestFixture, Ignore]
+    [TestFixture]
     public class KeyErrorPythonExceptionInterpreterTests
     {
         private PythonException _pythonException;
 
-        [TestFixtureSetUp]
+        [SetUp]
         public void Setup()
         {
-            var pythonPath = new DirectoryInfo("RegressionAlgorithms");
-            Environment.SetEnvironmentVariable("PYTHONPATH", pythonPath.FullName);
-
             using (Py.GIL())
             {
                 var module = Py.Import("Test_PythonExceptionInterpreter");
@@ -84,7 +80,7 @@ namespace QuantConnect.Tests.Common.Exceptions
             var assembly = typeof(PythonExceptionInterpreter).Assembly;
             var interpreter = StackExceptionInterpreter.CreateFromAssemblies(new[] { assembly });
             exception = interpreter.Interpret(exception, NullExceptionInterpreter.Instance);
-            Assert.True(exception.Message.Contains("dict()[\\'SPY\\']"));
+            Assert.True(exception.Message.Contains("dict()['SPY']"));
         }
 
         private Exception CreateExceptionFromType(Type type) => type == typeof(PythonException) ? _pythonException : (Exception)Activator.CreateInstance(type);

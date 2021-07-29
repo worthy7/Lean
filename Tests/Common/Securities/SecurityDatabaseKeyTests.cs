@@ -1,11 +1,11 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -97,18 +97,41 @@ namespace QuantConnect.Tests.Common.Securities
             Assert.AreEqual("SPY", key.Symbol);
         }
 
-        [Test, ExpectedException(typeof(ArgumentException), MatchType = MessageMatch.Contains, ExpectedMessage = "as a SecurityType")]
+        [Test]
+        public void EqualityMembersAreCaseInsensitive()
+        {
+            var key = new SecurityDatabaseKey("uSa", "SPY", SecurityType.Equity);
+            var key2 = new SecurityDatabaseKey("UsA", "spy", SecurityType.Equity);
+
+            Assert.AreEqual(key, key2);
+            Assert.AreEqual(key.GetHashCode(), key2.GetHashCode());
+        }
+
+        [Test]
         public void ThrowsOnWildcardSecurityType()
         {
             const string input = "[*]-usa-SPY";
-            SecurityDatabaseKey.Parse(input);
+            Assert.Throws<FormatException>(() =>
+            {
+                SecurityDatabaseKey.Parse(input);
+            }, "as a SecurityType");
         }
 
-        [Test, ExpectedException(typeof (FormatException), MatchType = MessageMatch.Contains, ExpectedMessage = "expected format")]
+        [Test]
         public void ThrowsOnInvalidFormat()
         {
             const string input = "Equity-[*]";
-            SecurityDatabaseKey.Parse(input);
+            Assert.Throws<FormatException>(() =>
+            {
+                SecurityDatabaseKey.Parse(input);
+            }, "expected format");
+        }
+
+        [TestCase("Index-usa-SPX")]
+        [TestCase("IndexOption-usa-SPX")]
+        public void DoesNotThrowOnUnknownSecurityType(string key)
+        {
+            Assert.DoesNotThrow(() => SecurityDatabaseKey.Parse(key));
         }
     }
 }

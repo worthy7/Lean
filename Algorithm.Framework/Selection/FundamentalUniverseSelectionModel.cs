@@ -25,18 +25,17 @@ namespace QuantConnect.Algorithm.Framework.Selection
     /// <summary>
     /// Provides a base class for defining equity coarse/fine fundamental selection models
     /// </summary>
-    public abstract class FundamentalUniverseSelectionModel : IUniverseSelectionModel
+    public abstract class FundamentalUniverseSelectionModel : UniverseSelectionModel
     {
         private readonly bool _filterFineData;
         private readonly UniverseSettings _universeSettings;
-        private readonly ISecurityInitializer _securityInitializer;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="FundamentalUniverseSelectionModel"/> class
         /// </summary>
         /// <param name="filterFineData">True to also filter using fine fundamental data, false to only filter on coarse data</param>
         protected FundamentalUniverseSelectionModel(bool filterFineData)
-            : this(filterFineData, null, null)
+            : this(filterFineData, null)
         {
         }
 
@@ -44,13 +43,11 @@ namespace QuantConnect.Algorithm.Framework.Selection
         /// Initializes a new instance of the <see cref="FundamentalUniverseSelectionModel"/> class
         /// </summary>
         /// <param name="filterFineData">True to also filter using fine fundamental data, false to only filter on coarse data</param>
-        /// <param name="universeSettings">The settings used when adding symbols to the algorithm, specify null to use algorthm.UniverseSettings</param>
-        /// <param name="securityInitializer">Optional security initializer invoked when creating new securities, specify null to use algorithm.SecurityInitializer</param>
-        protected FundamentalUniverseSelectionModel(bool filterFineData, UniverseSettings universeSettings, ISecurityInitializer securityInitializer)
+        /// <param name="universeSettings">The settings used when adding symbols to the algorithm, specify null to use algorithm.UniverseSettings</param>
+        protected FundamentalUniverseSelectionModel(bool filterFineData, UniverseSettings universeSettings)
         {
             _filterFineData = filterFineData;
             _universeSettings = universeSettings;
-            _securityInitializer = securityInitializer;
         }
 
         /// <summary>
@@ -58,7 +55,7 @@ namespace QuantConnect.Algorithm.Framework.Selection
         /// </summary>
         /// <param name="algorithm">The algorithm instance to create universes for</param>
         /// <returns>The universe defined by this model</returns>
-        public IEnumerable<Universe> CreateUniverses(QCAlgorithmFramework algorithm)
+        public override IEnumerable<Universe> CreateUniverses(QCAlgorithm algorithm)
         {
             var universe = CreateCoarseFundamentalUniverse(algorithm);
             if (_filterFineData)
@@ -74,11 +71,10 @@ namespace QuantConnect.Algorithm.Framework.Selection
         /// </summary>
         /// <param name="algorithm">The algorithm instance</param>
         /// <returns>The coarse fundamental universe</returns>
-        public virtual Universe CreateCoarseFundamentalUniverse(QCAlgorithmFramework algorithm)
+        public virtual Universe CreateCoarseFundamentalUniverse(QCAlgorithm algorithm)
         {
             var universeSettings = _universeSettings ?? algorithm.UniverseSettings;
-            var securityInitializer = _securityInitializer ?? algorithm.SecurityInitializer;
-            return new CoarseFundamentalUniverse(universeSettings, securityInitializer, coarse =>
+            return new CoarseFundamentalUniverse(universeSettings, coarse =>
             {
                 // if we're using fine fundamental selection than exclude symbols without fine data
                 if (_filterFineData)
@@ -96,7 +92,7 @@ namespace QuantConnect.Algorithm.Framework.Selection
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="coarse">The coarse fundamental data used to perform filtering</param>
         /// <returns>An enumerable of symbols passing the filter</returns>
-        public abstract IEnumerable<Symbol> SelectCoarse(QCAlgorithmFramework algorithm, IEnumerable<CoarseFundamental> coarse);
+        public abstract IEnumerable<Symbol> SelectCoarse(QCAlgorithm algorithm, IEnumerable<CoarseFundamental> coarse);
 
         /// <summary>
         /// Defines the fine fundamental selection function.
@@ -104,7 +100,7 @@ namespace QuantConnect.Algorithm.Framework.Selection
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="fine">The fine fundamental data used to perform filtering</param>
         /// <returns>An enumerable of symbols passing the filter</returns>
-        public virtual IEnumerable<Symbol> SelectFine(QCAlgorithmFramework algorithm, IEnumerable<FineFundamental> fine)
+        public virtual IEnumerable<Symbol> SelectFine(QCAlgorithm algorithm, IEnumerable<FineFundamental> fine)
         {
             // default impl performs no filtering of fine data
             return fine.Select(f => f.Symbol);
@@ -124,7 +120,7 @@ namespace QuantConnect.Algorithm.Framework.Selection
         ///
         /// </summary>
         /// <param name="coarseSelector">Selects symbols from the provided coarse data set</param>
-        /// <param name="fineSelector">Selects symbols from the provided fine data set (this set has already been filtered according to the coarse selection)</param
+        /// <param name="fineSelector">Selects symbols from the provided fine data set (this set has already been filtered according to the coarse selection)</param>
         /// <returns>A new universe selection model that will select US equities according to the selection functions specified</returns>
         public static IUniverseSelectionModel Fine(Func<IEnumerable<CoarseFundamental>, IEnumerable<Symbol>> coarseSelector, Func<IEnumerable<FineFundamental>, IEnumerable<Symbol>> fineSelector)
         {

@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,18 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Indicators")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Indicators import *
-from QuantConnect.Parameters import *
-import decimal as d
+from AlgorithmImports import *
 
 ### <summary>
 ### Demonstration of the parameter system of QuantConnect. Using parameters you can pass the values required into C# algorithms for optimization.
@@ -62,7 +51,7 @@ class ParameterizedAlgorithm(QCAlgorithm):
         fast = self.fast.Current.Value
         slow = self.slow.Current.Value
 
-        if fast > slow * d.Decimal(1.001):
+        if fast > slow * 1.001:
             self.SetHoldings("SPY", 1)
-        elif fast < slow * d.Decimal(0.999):
+        elif fast < slow * 0.999:
             self.Liquidate("SPY")

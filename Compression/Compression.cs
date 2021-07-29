@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -36,6 +37,18 @@ namespace QuantConnect
     /// <remarks>QuantConnect's data library is stored in zip format locally on the hard drive.</remarks>
     public static class Compression
     {
+        /// <summary>
+        /// Global Flag :: Operating System
+        /// </summary>
+        private static bool IsLinux
+        {
+            get
+            {
+                var p = (int)Environment.OSVersion.Platform;
+                return (p == 4) || (p == 6) || (p == 128);
+            }
+        }
+
         /// <summary>
         /// Create a zip file of the supplied file names and string data source
         /// </summary>
@@ -155,29 +168,24 @@ namespace QuantConnect
         /// <summary>
         /// Append the zip data to the file-entry specified.
         /// </summary>
-        /// <param name="path"></param>
-        /// <param name="entry"></param>
-        /// <param name="data"></param>
-        /// <returns></returns>
-        public static bool ZipCreateAppendData(string path, string entry, string data)
+        /// <param name="path">The zip file path</param>
+        /// <param name="entry">The entry name</param>
+        /// <param name="data">The entry data</param>
+        /// <param name="overrideEntry">True if should override entry if it already exists</param>
+        /// <returns>True on success</returns>
+        public static bool ZipCreateAppendData(string path, string entry, string data, bool overrideEntry = false)
         {
             try
             {
-                if (File.Exists(path))
+                using (var zip = File.Exists(path) ? ZipFile.Read(path) : new ZipFile(path))
                 {
-                    using (var zip = ZipFile.Read(path))
+                    if (zip.ContainsEntry(entry) && overrideEntry)
                     {
-                        zip.AddEntry(entry, data);
-                        zip.Save();
+                        zip.RemoveEntry(entry);
                     }
-                }
-                else
-                {
-                    using (var zip = new ZipFile(path))
-                    {
-                        zip.AddEntry(entry, data);
-                        zip.Save();
-                    }
+
+                    zip.AddEntry(entry, data);
+                    zip.Save();
                 }
             }
             catch (Exception err)
@@ -192,8 +200,9 @@ namespace QuantConnect
         /// Uncompress zip data byte array into a dictionary string array of filename-contents.
         /// </summary>
         /// <param name="zipData">Byte data array of zip compressed information</param>
+        /// <param name="encoding">Specifies the encoding used to read the bytes. If not specified, defaults to ASCII</param>
         /// <returns>Uncompressed dictionary string-sting of files in the zip</returns>
-        public static Dictionary<string, string> UnzipData(byte[] zipData)
+        public static Dictionary<string, string> UnzipData(byte[] zipData, Encoding encoding = null)
         {
             // Initialize:
             var data = new Dictionary<string, string>();
@@ -217,7 +226,8 @@ namespace QuantConnect
                                 zipStream.Read(buffer, 0, (int)entry.Size);
 
                                 //Save into array:
-                                data.Add(entry.Name, buffer.GetString());
+                                var str = (encoding ?? Encoding.ASCII).GetString(buffer);
+                                data.Add(entry.Name, str);
                             }
                             else
                             {
@@ -243,16 +253,19 @@ namespace QuantConnect
         /// <returns>The zipped file as a byte array</returns>
         public static byte[] ZipBytes(byte[] bytes, string zipEntryName)
         {
-            var memoryStream = new MemoryStream();
-            using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
+            using (var memoryStream = new MemoryStream())
             {
-                var entry = archive.CreateEntry(zipEntryName);
-                using (var entryStream = entry.Open())
+                using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
                 {
-                    entryStream.Write(bytes, 0, bytes.Length);
+                    var entry = archive.CreateEntry(zipEntryName);
+                    using (var entryStream = entry.Open())
+                    {
+                        entryStream.Write(bytes, 0, bytes.Length);
+                    }
                 }
+                // 'ToArray' after disposing of 'ZipArchive' since it finishes writing all the data
+                return memoryStream.ToArray();
             }
-            return memoryStream.GetBuffer();
         }
 
         /// <summary>
@@ -341,6 +354,12 @@ namespace QuantConnect
             return Zip(textPath, Path.GetFileName(textPath), deleteOriginal);
         }
 
+        /// <summary>
+        /// Compress given data to the path given
+        /// </summary>
+        /// <param name="data">Data to write to zip</param>
+        /// <param name="zipPath">Path to write to</param>
+        /// <param name="zipEntry">Entry to save the data as</param>
         public static void Zip(string data, string zipPath, string zipEntry)
         {
             using (var stream = new ZipOutputStream(File.Create(zipPath)))
@@ -420,7 +439,7 @@ namespace QuantConnect
                             // skip directories
                             if (file.Name == "") continue;
                             var filepath = Path.Combine(directory, file.FullName);
-                            if (OS.IsLinux) filepath = filepath.Replace(@"\", "/");
+                            if (IsLinux) filepath = filepath.Replace(@"\", "/");
                             var outputFile = new FileInfo(filepath);
                             if (!outputFile.Directory.Exists)
                             {
@@ -454,7 +473,7 @@ namespace QuantConnect
                     {
                         if (!File.Exists(file))
                         {
-                            Log.Trace("ZipFiles(): File does not exist: " + file);
+                            Log.Trace($"ZipFiles(): File does not exist: {file}");
                             continue;
                         }
 
@@ -523,7 +542,7 @@ namespace QuantConnect
                 }
                 else
                 {
-                    Log.Error("Data.UnZip(2): File doesn't exist: " + filename);
+                    Log.Error($"Data.UnZip(2): File doesn\'t exist: {filename}");
                 }
             }
             catch (Exception err)
@@ -548,7 +567,7 @@ namespace QuantConnect
         {
             if (!File.Exists(filename))
             {
-                Log.Error("Compression.Unzip(): File does not exist: " + filename);
+                Log.Error($"Compression.Unzip(): File does not exist: {filename}");
                 return Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>();
             }
 
@@ -589,7 +608,7 @@ namespace QuantConnect
         {
             if (!File.Exists(filename))
             {
-                Log.Error("Compression.ReadFirstZipEntry(): File does not exist: " + filename);
+                Log.Error($"Compression.ReadFirstZipEntry(): File does not exist: {filename}");
                 return Enumerable.Empty<string>();
             }
 
@@ -625,9 +644,11 @@ namespace QuantConnect
         {
             using (var entryReader = new StreamReader(entry.OpenReader()))
             {
-                while (!entryReader.EndOfStream)
+                var line = entryReader.ReadLine();
+                while (line != null)
                 {
-                    yield return entryReader.ReadLine();
+                    yield return line;
+                    line = entryReader.ReadLine();
                 }
             }
         }
@@ -700,11 +721,10 @@ namespace QuantConnect
         {
             //1. Initialize:
             var files = new List<string>();
-            var slash = zipFile.LastIndexOf(Path.DirectorySeparatorChar);
-            var outFolder = "";
-            if (slash > 0)
+            var outFolder = Path.GetDirectoryName(zipFile);
+            if (string.IsNullOrEmpty(outFolder))
             {
-                outFolder = zipFile.Substring(0, slash);
+                outFolder = Directory.GetCurrentDirectory();
             }
             ICSharpCode.SharpZipLib.Zip.ZipFile zf = null;
 
@@ -718,19 +738,20 @@ namespace QuantConnect
                     //Ignore Directories
                     if (!zipEntry.IsFile) continue;
 
-                    //Remove the folder from the entry
-                    var entryFileName = Path.GetFileName(zipEntry.Name);
-                    if (entryFileName == null) continue;
-
-                    var buffer = new byte[4096];     // 4K is optimum
+                    var buffer = new byte[4096]; // 4K is optimum
                     var zipStream = zf.GetInputStream(zipEntry);
 
                     // Manipulate the output filename here as desired.
-                    var fullZipToPath = Path.Combine(outFolder, entryFileName);
+                    var fullZipToPath = Path.Combine(outFolder, zipEntry.Name);
+
+                    var targetFile = new FileInfo(fullZipToPath);
+                    if (targetFile.Directory != null && !targetFile.Directory.Exists)
+                    {
+                        targetFile.Directory.Create();
+                    }
 
                     //Save the file name for later:
                     files.Add(fullZipToPath);
-                    //Log.Trace("Data.UnzipToFolder(): Input File: " + zipFile + ", Output Directory: " + fullZipToPath);
 
                     //Copy the data in buffer chunks
                     using (var streamWriter = File.Create(fullZipToPath))
@@ -738,6 +759,12 @@ namespace QuantConnect
                         StreamUtils.Copy(zipStream, streamWriter, buffer);
                     }
                 }
+            }
+            catch
+            {
+                // lets catch the exception just to log some information about the zip file
+                Log.Error($"Compression.UnzipToFolder(): Failure: zipFile: {zipFile} - outFolder: {outFolder} - files: {string.Join(",", files)}");
+                throw;
             }
             finally
             {
@@ -861,10 +888,52 @@ namespace QuantConnect
         {
             using (var zip = ZipFile.Read(zipFileName))
             {
-                foreach (var entry in zip)
-                {
-                    yield return entry.FileName;
-                }
+                return zip.EntryFileNames;
+            }
+        }
+
+        /// <summary>
+        /// Return the entry file names contained in a zip file
+        /// </summary>
+        /// <param name="zipFileStream">Stream to the file</param>
+        /// <returns>IEnumerable of entry file names</returns>
+        public static IEnumerable<string> GetZipEntryFileNames(Stream zipFileStream)
+        {
+            using (var zip = ZipFile.Read(zipFileStream))
+            {
+                return zip.EntryFileNames;
+            }
+        }
+
+        /// <summary>
+        /// Extracts a 7-zip archive to disk, using the 7-zip CLI utility
+        /// </summary>
+        /// <param name="inputFile">Path to the 7z file</param>
+        /// <param name="outputDirectory">Directory to output contents of 7z</param>
+        /// <param name="execTimeout">Timeout in seconds for how long we should wait for the extraction to complete</param>
+        /// <exception cref="Exception">The extraction failed because of a timeout or the exit code was not 0</exception>
+        public static void Extract7ZipArchive(string inputFile, string outputDirectory, int execTimeout = 60000)
+        {
+            var zipper = IsLinux ? "7z" : "C:/Program Files/7-Zip/7z.exe";
+            var psi = new ProcessStartInfo(zipper, " e " + inputFile + " -o" + outputDirectory)
+            {
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                UseShellExecute = false,
+                RedirectStandardOutput = false
+            };
+
+            var process = new Process();
+            process.StartInfo = psi;
+            process.Start();
+
+            if (!process.WaitForExit(execTimeout))
+            {
+                throw new TimeoutException($"Timed out extracting 7Zip archive: {inputFile} ({execTimeout} seconds)");
+            }
+            if (process.ExitCode > 0)
+            {
+                throw new Exception($"Compression.Extract7ZipArchive(): 7Zip exited unsuccessfully (code {process.ExitCode})");
             }
         }
     }

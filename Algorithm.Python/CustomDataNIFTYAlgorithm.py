@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,21 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Data import SubscriptionDataSource
-from QuantConnect.Python import PythonData
-from datetime import date, timedelta, datetime
-import decimal
-import numpy as np
-import math
-import json
+from AlgorithmImports import *
 
 ### <summary>
 ### This demonstration imports indian NSE index "NIFTY" as a tradable security in addition to the USDINR currency pair. We move into the
@@ -42,8 +28,13 @@ class CustomDataNIFTYAlgorithm(QCAlgorithm):
         self.SetCash(100000)
 
         # Define the symbol and "type" of our generic data:
-        self.AddData(DollarRupee, "USDINR")
-        self.AddData(Nifty, "NIFTY")
+        rupee = self.AddData(DollarRupee, "USDINR", Resolution.Daily).Symbol
+        nifty = self.AddData(Nifty, "NIFTY", Resolution.Daily).Symbol
+
+        self.EnableAutomaticIndicatorWarmUp = True
+        rupeeSma = self.SMA(rupee, 20)
+        niftySma = self.SMA(rupee, 20)
+        self.Log(f"SMA - Is ready? USDINR: {rupeeSma.IsReady} NIFTY: {niftySma.IsReady}")
 
         self.minimumCorrelationHistory = 50
         self.today = CorrelationPair()
@@ -68,7 +59,7 @@ class CustomDataNIFTYAlgorithm(QCAlgorithm):
         if self.Time.weekday() != 2: return
 
         cur_qnty = self.Portfolio["NIFTY"].Quantity
-        quantity = decimal.Decimal(math.floor(self.Portfolio.MarginRemaining * decimal.Decimal(0.9) / data["NIFTY"].Close))
+        quantity = int(self.Portfolio.MarginRemaining * 0.9 / data["NIFTY"].Close)
         hi_nifty = max(price.NiftyPrice for price in self.prices)
         lo_nifty = min(price.NiftyPrice for price in self.prices)
 
@@ -83,14 +74,14 @@ class CustomDataNIFTYAlgorithm(QCAlgorithm):
 class Nifty(PythonData):
     '''NIFTY Custom Data Class'''
     def GetSource(self, config, date, isLiveMode):
-        return SubscriptionDataSource("https://www.dropbox.com/s/rsmg44jr6wexn2h/CNXNIFTY.csv?dl=1", SubscriptionTransportMedium.RemoteFile);
+        return SubscriptionDataSource("https://www.dropbox.com/s/rsmg44jr6wexn2h/CNXNIFTY.csv?dl=1", SubscriptionTransportMedium.RemoteFile)
 
 
     def Reader(self, config, line, date, isLiveMode):
         if not (line.strip() and line[0].isdigit()): return None
 
         # New Nifty object
-        index = Nifty();
+        index = Nifty()
         index.Symbol = config.Symbol
 
         try:
@@ -99,7 +90,8 @@ class Nifty(PythonData):
             # 2011-09-13  7792.9    7799.9     7722.65    7748.7    116534670    6107.78
             data = line.split(',')
             index.Time = datetime.strptime(data[0], "%Y-%m-%d")
-            index.Value = decimal.Decimal(data[4])
+            index.EndTime = index.Time + timedelta(days=1)
+            index.Value = data[4]
             index["Open"] = float(data[1])
             index["High"] = float(data[2])
             index["Low"] = float(data[3])
@@ -122,20 +114,21 @@ class DollarRupee(PythonData):
         if not (line.strip() and line[0].isdigit()): return None
 
         # New USDINR object
-        currency = DollarRupee();
+        currency = DollarRupee()
         currency.Symbol = config.Symbol
 
         try:
             data = line.split(',')
             currency.Time = datetime.strptime(data[0], "%Y-%m-%d")
-            currency.Value = decimal.Decimal(data[1])
+            currency.EndTime = currency.Time + timedelta(days=1)
+            currency.Value = data[1]
             currency["Close"] = float(data[1])
 
         except ValueError:
             # Do nothing
             return None
 
-        return currency;
+        return currency
 
 
 class CorrelationPair:

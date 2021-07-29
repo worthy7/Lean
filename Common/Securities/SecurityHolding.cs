@@ -1,11 +1,11 @@
 /*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,15 +14,22 @@
 */
 
 using System;
+using QuantConnect.Algorithm.Framework.Portfolio;
 using QuantConnect.Orders;
+using QuantConnect.Orders.Fees;
 
-namespace QuantConnect.Securities 
+namespace QuantConnect.Securities
 {
     /// <summary>
     /// SecurityHolding is a base class for purchasing and holding a market item which manages the asset portfolio
     /// </summary>
     public class SecurityHolding
     {
+        /// <summary>
+        /// Event raised each time the holdings quantity is changed.
+        /// </summary>
+        public event EventHandler<SecurityHoldingQuantityChangedEventArgs> QuantityChanged;
+
         //Working Variables
         private decimal _averagePrice;
         private decimal _quantity;
@@ -32,17 +39,20 @@ namespace QuantConnect.Securities
         private decimal _lastTradeProfit;
         private decimal _totalFees;
         private readonly Security _security;
+        private readonly ICurrencyConverter _currencyConverter;
 
         /// <summary>
         /// Create a new holding class instance setting the initial properties to $0.
         /// </summary>
         /// <param name="security">The security being held</param>
-        public SecurityHolding(Security security)
+        /// <param name="currencyConverter">A currency converter instance</param>
+        public SecurityHolding(Security security, ICurrencyConverter currencyConverter)
         {
             _security = security;
             //Total Sales Volume for the day
             _totalSaleVolume = 0;
             _lastTradeProfit = 0;
+            _currencyConverter = currencyConverter;
         }
 
         /// <summary>
@@ -59,8 +69,8 @@ namespace QuantConnect.Securities
             _profit = holding._profit;
             _lastTradeProfit = holding._lastTradeProfit;
             _totalFees = holding._totalFees;
+            _currencyConverter = holding._currencyConverter;
         }
-
 
         /// <summary>
         /// The security being held
@@ -71,6 +81,14 @@ namespace QuantConnect.Securities
             {
                 return _security;
             }
+        }
+
+        /// <summary>
+        /// Gets the current target holdings for this security
+        /// </summary>
+        public IPortfolioTarget Target
+        {
+            get; set;
         }
 
         /// <summary>
@@ -137,21 +155,24 @@ namespace QuantConnect.Securities
                 return _security.BuyingPowerModel.GetLeverage(_security);
             }
         }
-        
 
         /// <summary>
-        /// Acquisition cost of the security total holdings.
+        /// Acquisition cost of the security total holdings in units of the account's currency.
         /// </summary>
-        public virtual decimal HoldingsCost 
+        public virtual decimal HoldingsCost
         {
-            get 
+            get
             {
-                return AveragePrice * Convert.ToDecimal(Quantity) * _security.QuoteCurrency.ConversionRate * _security.SymbolProperties.ContractMultiplier;
+                if (Quantity == 0)
+                {
+                    return 0;
+                }
+                return AveragePrice * Quantity * _security.QuoteCurrency.ConversionRate * _security.SymbolProperties.ContractMultiplier;
             }
         }
 
         /// <summary>
-        /// Unlevered Acquisition cost of the security total holdings.
+        /// Unlevered Acquisition cost of the security total holdings in units of the account's currency.
         /// </summary>
         public virtual decimal UnleveredHoldingsCost
         {
@@ -174,19 +195,19 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Absolute holdings cost for current holdings in units of the account's currency
+        /// Absolute holdings cost for current holdings in units of the account's currency.
         /// </summary>
         /// <seealso cref="HoldingsCost"/>
-        public virtual decimal AbsoluteHoldingsCost 
+        public virtual decimal AbsoluteHoldingsCost
         {
-            get 
+            get
             {
                 return Math.Abs(HoldingsCost);
             }
         }
 
         /// <summary>
-        /// Unlevered absolute acquisition cost of the security total holdings.
+        /// Unlevered absolute acquisition cost of the security total holdings in units of the account's currency.
         /// </summary>
         public virtual decimal UnleveredAbsoluteHoldingsCost
         {
@@ -197,15 +218,23 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Market value of our holdings.
+        /// Market value of our holdings in units of the account's currency.
         /// </summary>
         public virtual decimal HoldingsValue
         {
-            get { return _price * Quantity * _security.QuoteCurrency.ConversionRate * _security.SymbolProperties.ContractMultiplier; }
+            get
+            {
+                if (Quantity == 0)
+                {
+                    return 0;
+                }
+
+                return GetQuantityValue(Quantity);
+            }
         }
 
         /// <summary>
-        /// Absolute of the market value of our holdings.
+        /// Absolute of the market value of our holdings in units of the account's currency.
         /// </summary>
         /// <seealso cref="HoldingsValue"/>
         public virtual decimal AbsoluteHoldingsValue
@@ -216,9 +245,9 @@ namespace QuantConnect.Securities
         /// <summary>
         /// Boolean flat indicating if we hold any of the security
         /// </summary>
-        public virtual bool HoldStock 
+        public virtual bool HoldStock
         {
-            get 
+            get
             {
                 return (AbsoluteQuantity > 0);
             }
@@ -238,7 +267,7 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// The total transaction volume for this security since the algorithm started.
+        /// The total transaction volume for this security since the algorithm started in units of the account's currency.
         /// </summary>
         public virtual decimal TotalSaleVolume
         {
@@ -246,7 +275,7 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Total fees for this company since the algorithm started.
+        /// Total fees for this company since the algorithm started in units of the account's currency.
         /// </summary>
         public virtual decimal TotalFees
         {
@@ -257,9 +286,9 @@ namespace QuantConnect.Securities
         /// Boolean flag indicating we have a net positive holding of the security.
         /// </summary>
         /// <seealso cref="IsShort"/>
-        public virtual bool IsLong 
+        public virtual bool IsLong
         {
-            get 
+            get
             {
                 return Quantity > 0;
             }
@@ -269,9 +298,9 @@ namespace QuantConnect.Securities
         /// BBoolean flag indicating we have a net negative holding of the security.
         /// </summary>
         /// <seealso cref="IsLong"/>
-        public virtual bool IsShort 
+        public virtual bool IsShort
         {
-            get 
+            get
             {
                 return Quantity < 0;
             }
@@ -281,27 +310,27 @@ namespace QuantConnect.Securities
         /// Absolute quantity of holdings of this security
         /// </summary>
         /// <seealso cref="Quantity"/>
-        public virtual decimal AbsoluteQuantity 
+        public virtual decimal AbsoluteQuantity
         {
-            get 
+            get
             {
                 return Math.Abs(Quantity);
             }
         }
 
         /// <summary>
-        /// Record of the closing profit from the last trade conducted.
+        /// Record of the closing profit from the last trade conducted in units of the account's currency.
         /// </summary>
-        public virtual decimal LastTradeProfit 
+        public virtual decimal LastTradeProfit
         {
-            get 
+            get
             {
                 return _lastTradeProfit;
             }
         }
 
         /// <summary>
-        /// Calculate the total profit for this security.
+        /// Calculate the total profit for this security in units of the account's currency.
         /// </summary>
         /// <seealso cref="NetProfit"/>
         public virtual decimal Profit
@@ -310,13 +339,13 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Return the net for this company measured by the profit less fees.
+        /// Return the net for this company measured by the profit less fees in units of the account's currency.
         /// </summary>
         /// <seealso cref="Profit"/>
         /// <seealso cref="TotalFees"/>
-        public virtual decimal NetProfit 
+        public virtual decimal NetProfit
         {
-            get 
+            get
             {
                 return Profit - TotalFees;
             }
@@ -335,7 +364,7 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Unrealized profit of this security when absolute quantity held is more than zero.
+        /// Unrealized profit of this security when absolute quantity held is more than zero in units of the account's currency.
         /// </summary>
         public virtual decimal UnrealizedProfit
         {
@@ -343,25 +372,25 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Adds a fee to the running total of total fees.
+        /// Adds a fee to the running total of total fees in units of the account's currency.
         /// </summary>
         /// <param name="newFee"></param>
-        public void AddNewFee(decimal newFee) 
+        public void AddNewFee(decimal newFee)
         {
             _totalFees += newFee;
         }
 
         /// <summary>
-        /// Adds a profit record to the running total of profit.
+        /// Adds a profit record to the running total of profit in units of the account's currency.
         /// </summary>
         /// <param name="profitLoss">The cash change in portfolio from closing a position</param>
-        public void AddNewProfit(decimal profitLoss) 
+        public void AddNewProfit(decimal profitLoss)
         {
             _profit += profitLoss;
         }
 
         /// <summary>
-        /// Adds a new sale value to the running total trading volume in terms of the account currency
+        /// Adds a new sale value to the running total trading volume in units of the account's currency.
         /// </summary>
         /// <param name="saleValue"></param>
         public void AddNewSale(decimal saleValue)
@@ -370,21 +399,20 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Set the last trade profit for this security from a Portfolio.ProcessFill call.
+        /// Set the last trade profit for this security from a Portfolio.ProcessFill call in units of the account's currency.
         /// </summary>
         /// <param name="lastTradeProfit">Value of the last trade profit</param>
-        public void SetLastTradeProfit(decimal lastTradeProfit) 
+        public void SetLastTradeProfit(decimal lastTradeProfit)
         {
             _lastTradeProfit = lastTradeProfit;
         }
-            
+
         /// <summary>
         /// Set the quantity of holdings and their average price after processing a portfolio fill.
         /// </summary>
-        public virtual void SetHoldings(decimal averagePrice, int quantity) 
+        public virtual void SetHoldings(decimal averagePrice, int quantity)
         {
-            _averagePrice = averagePrice;
-            _quantity = quantity;
+            SetHoldings(averagePrice, (decimal) quantity);
         }
 
         /// <summary>
@@ -392,8 +420,13 @@ namespace QuantConnect.Securities
         /// </summary>
         public virtual void SetHoldings(decimal averagePrice, decimal quantity)
         {
-            _averagePrice = averagePrice;
+            var previousQuantity = _quantity;
+            var previousAveragePrice = _averagePrice;
+
             _quantity = quantity;
+            _averagePrice = averagePrice;
+
+            OnQuantityChanged(previousAveragePrice, previousQuantity);
         }
 
         /// <summary>
@@ -406,21 +439,67 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Profit if we closed the holdings right now including the approximate fees.
+        /// Gets the total value of the specified <paramref name="quantity"/> of shares of this security
+        /// in the account currency
+        /// </summary>
+        /// <param name="quantity">The quantity of shares</param>
+        /// <returns>The value of the quantity of shares in the account currency</returns>
+        public virtual decimal GetQuantityValue(decimal quantity)
+        {
+            return GetQuantityValue(quantity, _price);
+        }
+
+        /// <summary>
+        /// Gets the total value of the specified <paramref name="quantity"/> of shares of this security
+        /// in the account currency
+        /// </summary>
+        /// <param name="quantity">The quantity of shares</param>
+        /// <param name="price">The current price</param>
+        /// <returns>The value of the quantity of shares in the account currency</returns>
+        public virtual decimal GetQuantityValue(decimal quantity, decimal price)
+        {
+            return price * quantity * _security.QuoteCurrency.ConversionRate * _security.SymbolProperties.ContractMultiplier;
+        }
+
+        /// <summary>
+        /// Profit if we closed the holdings right now including the approximate fees in units of the account's currency.
         /// </summary>
         /// <remarks>Does not use the transaction model for market fills but should.</remarks>
-        public virtual decimal TotalCloseProfit() 
+        public virtual decimal TotalCloseProfit()
         {
-            if (AbsoluteQuantity == 0)
+            if (Quantity == 0)
             {
                 return 0;
             }
 
             // this is in the account currency
             var marketOrder = new MarketOrder(_security.Symbol, -Quantity, _security.LocalTime.ConvertToUtc(_security.Exchange.TimeZone));
-            var orderFee = _security.FeeModel.GetOrderFee(_security, marketOrder);
 
-            return (Price - AveragePrice)*Quantity*_security.QuoteCurrency.ConversionRate*_security.SymbolProperties.ContractMultiplier - orderFee;
+            var orderFee = _security.FeeModel.GetOrderFee(
+                new OrderFeeParameters(_security, marketOrder)).Value;
+            var feesInAccountCurrency = _currencyConverter.
+                ConvertToAccountCurrency(orderFee).Amount;
+
+            var price = marketOrder.Direction == OrderDirection.Sell ? _security.BidPrice : _security.AskPrice;
+            if (price == 0)
+            {
+                // Bid/Ask prices can both be equal to 0. This usually happens when we request our holdings from
+                // the brokerage, but only the last trade price was provided.
+                price = _security.Price;
+            }
+
+            return (price - AveragePrice) * Quantity * _security.QuoteCurrency.ConversionRate
+                * _security.SymbolProperties.ContractMultiplier - feesInAccountCurrency;
+        }
+
+        /// <summary>
+        /// Event invocator for the <see cref="QuantityChanged"/> event
+        /// </summary>
+        protected virtual void OnQuantityChanged(decimal previousAveragePrice, decimal previousQuantity)
+        {
+            QuantityChanged?.Invoke(this, new SecurityHoldingQuantityChangedEventArgs(
+                _security, previousAveragePrice, previousQuantity
+            ));
         }
     }
 }

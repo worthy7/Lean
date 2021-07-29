@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,16 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Data.Market import *
-from datetime import datetime, timedelta
+from AlgorithmImports import *
 
 ### <summary>
 ### Algorithm used for regression tests purposes
@@ -71,7 +62,7 @@ class RegressionAlgorithm(QCAlgorithm):
         dt : datetime object, default now.
         roundTo : Closest number of seconds to round to, default 1 minute.
         """
-        if dt == None : dt = datetime.now()
+        if dt is None : dt = datetime.now()
         seconds = (dt - dt.min).seconds
         # // is a floor division, not a comment on following line:
         rounding = (seconds+roundTo/2) // roundTo * roundTo

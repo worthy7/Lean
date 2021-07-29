@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -13,8 +13,12 @@
  * limitations under the License.
 */
 
+using System;
 using System.Linq;
+using Newtonsoft.Json;
 using NUnit.Framework;
+using QuantConnect.Data.Market;
+using QuantConnect.Packets;
 using QuantConnect.Securities;
 
 namespace QuantConnect.Tests.Common.Securities
@@ -23,12 +27,33 @@ namespace QuantConnect.Tests.Common.Securities
     public class CashBookTests
     {
         [Test]
+        public void JsonRoundTrip()
+        {
+            var cashBook = new CashBook { AccountCurrency = Currencies.EUR };
+            cashBook.Add(Currencies.USD, 10, 1.2m);
+            cashBook.Add(Currencies.EUR, 10, 1m);
+
+            var expected = new LiveResult { CashBook = cashBook };
+
+            var serialized = JsonConvert.SerializeObject(expected);
+            var result = JsonConvert.DeserializeObject<LiveResult>(serialized);
+
+            Assert.AreEqual(expected.AccountCurrency, result.AccountCurrency);
+            Assert.AreEqual(expected.AccountCurrencySymbol, result.AccountCurrencySymbol);
+            Assert.AreEqual(expected.Cash.Count, result.Cash.Count);
+            Assert.AreEqual(expected.Cash[Currencies.USD].Amount, result.Cash[Currencies.USD].Amount);
+            Assert.AreEqual(expected.Cash[Currencies.USD].ConversionRate, result.Cash[Currencies.USD].ConversionRate);
+            Assert.AreEqual(expected.Cash[Currencies.EUR].Amount, result.Cash[Currencies.EUR].Amount);
+            Assert.AreEqual(expected.Cash[Currencies.EUR].ConversionRate, result.Cash[Currencies.EUR].ConversionRate);
+        }
+
+        [Test]
         public void InitializesWithAccountCurrencyAdded()
         {
             var book = new CashBook();
             Assert.AreEqual(1, book.Count);
             var cash = book.Single().Value;
-            Assert.AreEqual(CashBook.AccountCurrency, cash.Symbol);
+            Assert.AreEqual(Currencies.USD, cash.Symbol);
             Assert.AreEqual(0, cash.Amount);
             Assert.AreEqual(1m, cash.ConversionRate);
         }
@@ -37,11 +62,11 @@ namespace QuantConnect.Tests.Common.Securities
         public void ComputesValueInAccountCurrency()
         {
             var book = new CashBook();
-            book["USD"].SetAmount(1000);
+            book[Currencies.USD].SetAmount(1000);
             book.Add("JPY", 1000, 1/100m);
             book.Add("GBP", 1000, 2m);
 
-            decimal expected = book["USD"].ValueInAccountCurrency + book["JPY"].ValueInAccountCurrency + book["GBP"].ValueInAccountCurrency;
+            decimal expected = book[Currencies.USD].ValueInAccountCurrency + book["JPY"].ValueInAccountCurrency + book["GBP"].ValueInAccountCurrency;
             Assert.AreEqual(expected, book.TotalValueInAccountCurrency);
         }
 
@@ -75,7 +100,7 @@ namespace QuantConnect.Tests.Common.Securities
             book.Add("EUR", 0, 1.20m);
 
             var expected = 1000m;
-            var actual = book.Convert(1200, CashBook.AccountCurrency, "EUR");
+            var actual = book.Convert(1200, book.AccountCurrency, "EUR");
             Assert.AreEqual(expected, actual);
         }
 
@@ -86,8 +111,222 @@ namespace QuantConnect.Tests.Common.Securities
             book.Add("JPY", 0, 1/100m);
 
             var expected = 100000m;
-            var actual = book.Convert(1000, CashBook.AccountCurrency, "JPY");
+            var actual = book.Convert(1000, book.AccountCurrency, "JPY");
             Assert.AreEqual(expected, actual);
+        }
+
+        [Test]
+        public void WontAddNullCurrencyCash()
+        {
+            var book = new CashBook {{Currencies.NullCurrency, 1, 1}};
+            Assert.AreEqual(1, book.Count);
+            var cash = book.Single().Value;
+            Assert.AreEqual(Currencies.USD, cash.Symbol);
+
+            book.Add(Currencies.NullCurrency, 1, 1);
+            Assert.AreEqual(1, book.Count);
+            cash = book.Single().Value;
+            Assert.AreEqual(Currencies.USD, cash.Symbol);
+
+            book.Add(Currencies.NullCurrency,
+                new Cash(Currencies.NullCurrency, 1, 1));
+            Assert.AreEqual(1, book.Count);
+            cash = book.Single().Value;
+            Assert.AreEqual(Currencies.USD, cash.Symbol);
+
+            book[Currencies.NullCurrency] =
+                new Cash(Currencies.NullCurrency, 1, 1);
+            Assert.AreEqual(1, book.Count);
+            cash = book.Single().Value;
+            Assert.AreEqual(Currencies.USD, cash.Symbol);
+        }
+
+        [Test]
+        public void WillThrowIfGetNullCurrency()
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                var symbol = new CashBook()[Currencies.NullCurrency].Symbol;
+            });
+        }
+
+        [Test]
+        public void UpdatedAddedCalledOnlyForNewSymbols()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                if (updateType == CashBook.UpdateType.Added)
+                {
+                    called = true;
+                }
+            };
+            cashBook.Add(cash.Symbol, cash);
+
+            Assert.IsFalse(called);
+        }
+
+        [Test]
+        public void UpdateEventCalledForCashUpdatesWhenAccessingConversionRate()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                if (updateType == CashBook.UpdateType.Updated)
+                {
+                    called = true;
+                }
+            };
+            cash.Update();
+            var conversionRate = cash.ConversionRate;
+
+            Assert.IsTrue(called);
+        }
+
+        [Test]
+        public void UpdateEventCalledForAddMethod()
+        {
+            var cashBook = new CashBook();
+            // we remove default USD cash
+            cashBook.Clear();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                if (updateType == CashBook.UpdateType.Added)
+                {
+                    called = true;
+                }
+            };
+            cashBook.Add(cash.Symbol, cash);
+
+            Assert.IsTrue(called);
+        }
+
+        [Test]
+        public void UpdateEventCalledForAdd()
+        {
+            var cashBook = new CashBook();
+            // we remove default USD cash
+            cashBook.Clear();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                if (updateType == CashBook.UpdateType.Added)
+                {
+                    called = true;
+                }
+            };
+
+            cashBook[cash.Symbol] = cash;
+
+            Assert.IsTrue(called);
+        }
+
+        [Test]
+        public void UpdateEventCalledForRemove()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                if (updateType == CashBook.UpdateType.Removed)
+                {
+                    called = true;
+                }
+            };
+
+            cashBook.Remove(Currencies.USD);
+
+            Assert.IsTrue(called);
+        }
+
+        [Test]
+        public void UpdateEventNotCalledForCashUpdatesAfterRemoved()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Remove(Currencies.USD);
+            cashBook.Updated += (sender, args) =>
+            {
+                called = true;
+            };
+            cash.Update();
+
+            Assert.IsFalse(called);
+        }
+
+        [Test]
+        public void UpdateEventNotCalledForCashUpdatesAfterSteppedOn()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var updatedCalled = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            var cash2 = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Add(cash.Symbol, cash2);
+
+            cashBook.Updated += (sender, updateType) =>
+            {
+                called = true;
+                updatedCalled = updateType == CashBook.UpdateType.Updated;
+            };
+            cash.Update();
+            var conversionRate = cash.ConversionRate;
+            Assert.IsFalse(called);
+
+            cash2.Update();
+            var conversionRate2 = cash2.ConversionRate;
+            Assert.IsTrue(updatedCalled);
+        }
+
+        [Test]
+        public void UpdateEventCalledForAddExistingValueCalledOnce()
+        {
+            var cashBook = new CashBook();
+            var called = 0;
+            var calledUpdated = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                called++;
+                calledUpdated = updateType == CashBook.UpdateType.Updated;
+            };
+
+            cashBook.Add(cash.Symbol, cash);
+
+            Assert.AreEqual(1, called);
+            Assert.IsTrue(calledUpdated);
+        }
+
+        [Test]
+        public void UpdateEventCalledForClear()
+        {
+            var cashBook = new CashBook();
+            var called = false;
+            var cash = new Cash(Currencies.USD, 1, 1);
+            cashBook.Add(cash.Symbol, cash);
+            cashBook.Updated += (sender, updateType) =>
+            {
+                called = updateType == CashBook.UpdateType.Removed;
+            };
+
+            cashBook.Clear();
+
+            Assert.IsTrue(called);
         }
     }
 }

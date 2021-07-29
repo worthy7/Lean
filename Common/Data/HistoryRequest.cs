@@ -16,26 +16,16 @@
 
 using System;
 using NodaTime;
-using QuantConnect.Data.Market;
 using QuantConnect.Securities;
-using QuantConnect.Util;
 
 namespace QuantConnect.Data
 {
     /// <summary>
     /// Represents a request for historical data
     /// </summary>
-    public class HistoryRequest
+    public class HistoryRequest : BaseDataRequest
     {
-        /// <summary>
-        /// Gets the start time of the request.
-        /// </summary>
-        public DateTime StartTimeUtc { get; set; }
-
-        /// <summary>
-        /// Gets the end time of the request.
-        /// </summary>
-        public DateTime EndTimeUtc { get; set; }
+        private Resolution? _fillForwardResolution;
 
         /// <summary>
         /// Gets the symbol to request data for
@@ -43,19 +33,25 @@ namespace QuantConnect.Data
         public Symbol Symbol { get; set; }
 
         /// <summary>
-        /// Gets the exchange hours used for processing fill forward requests
-        /// </summary>
-        public SecurityExchangeHours ExchangeHours { get; set; }
-
-        /// <summary>
         /// Gets the requested data resolution
         /// </summary>
         public Resolution Resolution { get; set; }
 
         /// <summary>
-        /// Gets the requested fill forward resolution, set to null for no fill forward behavior
+        /// Gets the requested fill forward resolution, set to null for no fill forward behavior.
+        /// Will always return null when Resolution is set to Tick.
         /// </summary>
-        public Resolution? FillForwardResolution { get; set; }
+        public Resolution? FillForwardResolution
+        {
+            get
+            {
+                return Resolution == Resolution.Tick ? null : _fillForwardResolution;
+            }
+            set
+            {
+                _fillForwardResolution = value;
+            }
+        }
 
         /// <summary>
         /// Gets whether or not to include extended market hours data, set to false for only normal market hours
@@ -87,7 +83,6 @@ namespace QuantConnect.Data
         /// </summary>
         public DataNormalizationMode DataNormalizationMode { get; set; }
 
-
         /// <summary>
         /// Initializes a new instance of the <see cref="HistoryRequest"/> class from the specified parameters
         /// </summary>
@@ -115,11 +110,9 @@ namespace QuantConnect.Data
             bool isCustomData,
             DataNormalizationMode dataNormalizationMode,
             TickType tickType)
+            : base(startTimeUtc, endTimeUtc, exchangeHours, tickType)
         {
-            StartTimeUtc = startTimeUtc;
-            EndTimeUtc = endTimeUtc;
             Symbol = symbol;
-            ExchangeHours = exchangeHours;
             DataTimeZone = dataTimeZone;
             Resolution = resolution;
             FillForwardResolution = fillForwardResolution;
@@ -138,19 +131,10 @@ namespace QuantConnect.Data
         /// <param name="startTimeUtc">The start time for this request,</param>
         /// <param name="endTimeUtc">The start time for this request</param>
         public HistoryRequest(SubscriptionDataConfig config, SecurityExchangeHours hours, DateTime startTimeUtc, DateTime endTimeUtc)
+            : this(startTimeUtc, endTimeUtc, config.Type, config.Symbol, config.Resolution,
+                hours, config.DataTimeZone, config.FillDataForward ? config.Resolution : (Resolution?)null,
+                config.ExtendedMarketHours, config.IsCustomData, config.DataNormalizationMode, config.TickType)
         {
-            StartTimeUtc = startTimeUtc;
-            EndTimeUtc = endTimeUtc;
-            Symbol = config.Symbol;
-            ExchangeHours = hours;
-            Resolution = config.Resolution;
-            FillForwardResolution = config.FillDataForward ? config.Resolution : (Resolution?) null;
-            IncludeExtendedMarketHours = config.ExtendedMarketHours;
-            DataType = config.Type;
-            IsCustomData = config.IsCustomData;
-            DataNormalizationMode = config.DataNormalizationMode;
-            DataTimeZone = config.DataTimeZone;
-            TickType = config.TickType;
         }
     }
 }

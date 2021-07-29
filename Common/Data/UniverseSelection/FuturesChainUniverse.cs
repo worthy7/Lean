@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -21,7 +21,6 @@ using QuantConnect.Data.Market;
 using QuantConnect.Interfaces;
 using QuantConnect.Securities;
 using QuantConnect.Securities.Future;
-using QuantConnect.Util;
 
 namespace QuantConnect.Data.UniverseSelection
 {
@@ -30,13 +29,7 @@ namespace QuantConnect.Data.UniverseSelection
     /// </summary>
     public class FuturesChainUniverse : Universe
     {
-        private static readonly IReadOnlyList<TickType> dataTypes = new[] { TickType.Quote, TickType.Trade, TickType.OpenInterest };
-
-        private readonly Future _future;
         private readonly UniverseSettings _universeSettings;
-        private SubscriptionManager _subscriptionManager;
-
-        private HashSet<Symbol> _cachedSelection;
         private DateTime _cacheDate;
 
         /// <summary>
@@ -44,18 +37,18 @@ namespace QuantConnect.Data.UniverseSelection
         /// </summary>
         /// <param name="future">The canonical future chain security</param>
         /// <param name="universeSettings">The universe settings to be used for new subscriptions</param>
-        /// <param name="subscriptionManager">The subscription manager used to return available data types</param>
-        /// <param name="securityInitializer">The security initializer to use on newly created securities</param>
         public FuturesChainUniverse(Future future,
-                                    UniverseSettings universeSettings,
-                                    SubscriptionManager subscriptionManager,
-                                    ISecurityInitializer securityInitializer = null)
-            : base(future.SubscriptionDataConfig, securityInitializer)
+            UniverseSettings universeSettings)
+            : base(future.SubscriptionDataConfig)
         {
-            _future = future;
+            Future = future;
             _universeSettings = universeSettings;
-            _subscriptionManager = subscriptionManager;
         }
+
+        /// <summary>
+        /// The canonical future chain security
+        /// </summary>
+        public Future Future { get; }
 
         /// <summary>
         /// Gets the settings used for subscriptons added for this universe
@@ -76,23 +69,24 @@ namespace QuantConnect.Data.UniverseSelection
             var futuresUniverseDataCollection = data as FuturesChainUniverseDataCollection;
             if (futuresUniverseDataCollection == null)
             {
-                throw new ArgumentException(string.Format("Expected data of type '{0}'", typeof (FuturesChainUniverseDataCollection).Name));
+                throw new ArgumentException($"Expected data of type '{typeof(FuturesChainUniverseDataCollection).Name}'");
             }
 
             var underlying = new Tick { Time = utcTime };
 
-            if (_cacheDate != null && _cacheDate == data.Time.Date)
+            // date change detection needs to be done in exchange time zone
+            if (_cacheDate == data.Time.ConvertFromUtc(Future.Exchange.TimeZone).Date)
             {
                 return Unchanged;
             }
 
             var availableContracts = futuresUniverseDataCollection.Data.Select(x => x.Symbol);
-            var results = _future.ContractFilter.Filter(new FutureFilterUniverse(availableContracts, underlying));
+            var results = Future.ContractFilter.Filter(new FutureFilterUniverse(availableContracts, underlying));
 
             // if results are not dynamic, we cache them and won't call filtering till the end of the day
             if (!results.IsDynamic)
             {
-                _cacheDate = data.Time.Date;
+                _cacheDate = data.Time.ConvertFromUtc(Future.Exchange.TimeZone).Date;
             }
 
             var resultingSymbols = results.ToHashSet();
@@ -100,22 +94,6 @@ namespace QuantConnect.Data.UniverseSelection
             futuresUniverseDataCollection.FilteredContracts = resultingSymbols;
 
             return resultingSymbols;
-        }
-
-        /// <summary>
-        /// Creates and configures a security for the specified symbol
-        /// </summary>
-        /// <param name="symbol">The symbol of the security to be created</param>
-        /// <param name="algorithm">The algorithm instance</param>
-        /// <param name="marketHoursDatabase">The market hours database</param>
-        /// <param name="symbolPropertiesDatabase">The symbol properties database</param>
-        /// <returns>The newly initialized security object</returns>
-        public override Security CreateSecurity(Symbol symbol, IAlgorithm algorithm, MarketHoursDatabase marketHoursDatabase, SymbolPropertiesDatabase symbolPropertiesDatabase)
-        {
-            // set the underlying security and pricing model from the canonical security
-            var future = (Future)base.CreateSecurity(symbol, algorithm, marketHoursDatabase, symbolPropertiesDatabase);
-            future.Underlying = _future.Underlying;
-            return future;
         }
 
         /// <summary>
@@ -129,6 +107,12 @@ namespace QuantConnect.Data.UniverseSelection
         /// <returns>True if we can remove the security, false otherwise</returns>
         public override bool CanRemoveMember(DateTime utcTime, Security security)
         {
+            // can always remove securities after dispose requested
+            if (DisposeRequested)
+            {
+                return true;
+            }
+
             // if we haven't begun receiving data for this security then it's safe to remove
             var lastData = security.Cache.GetData();
             if (lastData == null)
@@ -145,6 +129,25 @@ namespace QuantConnect.Data.UniverseSelection
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Gets the subscription requests to be added for the specified security
+        /// </summary>
+        /// <param name="security">The security to get subscriptions for</param>
+        /// <param name="currentTimeUtc">The current time in utc. This is the frontier time of the algorithm</param>
+        /// <param name="maximumEndTimeUtc">The max end time</param>
+        /// <param name="subscriptionService">Instance which implements <see cref="ISubscriptionDataConfigService"/> interface</param>
+        /// <returns>All subscriptions required by this security</returns>
+        public override IEnumerable<SubscriptionRequest> GetSubscriptionRequests(Security security, DateTime currentTimeUtc, DateTime maximumEndTimeUtc,
+            ISubscriptionDataConfigService subscriptionService)
+        {
+            if (Future.Symbol.Underlying == security.Symbol)
+            {
+                Future.Underlying = security;
+            }
+
+            return base.GetSubscriptionRequests(security, currentTimeUtc, maximumEndTimeUtc, subscriptionService);
         }
     }
 }

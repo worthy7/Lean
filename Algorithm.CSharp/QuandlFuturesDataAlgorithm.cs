@@ -52,22 +52,22 @@ namespace QuantConnect.Algorithm.CSharp
             if (!Portfolio.HoldStock)
             {
                 SetHoldings(_crude, 1);
-                Debug(Time.ToString("u") + " Purchased Crude Oil: " + _crude);
+                Debug(Time.ToStringInvariant("u") + " Purchased Crude Oil: " + _crude);
             }
         }
-    }
 
-    /// <summary>
-    /// Custom quandl data type for setting customized value column name. Value column is used for the primary trading calculations and charting.
-    /// </summary>
-    public class QuandlFuture : Quandl
-    {
         /// <summary>
-        /// Initializes a new instance of the <see cref="QuandlFuture"/> class.
+        /// Custom quandl data type for setting customized value column name. Value column is used for the primary trading calculations and charting.
         /// </summary>
-        public QuandlFuture()
-            : base(valueColumnName: "Settle")
+        public class QuandlFuture : Quandl
         {
+            /// <summary>
+            /// Initializes a new instance of the <see cref="QuandlFuture"/> class.
+            /// </summary>
+            public QuandlFuture()
+                : base(valueColumnName: "Settle")
+            {
+            }
         }
     }
 }

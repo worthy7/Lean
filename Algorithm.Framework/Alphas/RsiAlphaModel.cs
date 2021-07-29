@@ -13,9 +13,7 @@
  * limitations under the License.
 */
 
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using QuantConnect.Data;
 using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Indicators;
@@ -27,21 +25,26 @@ namespace QuantConnect.Algorithm.Framework.Alphas
     /// Uses Wilder's RSI to create insights. Using default settings, a cross over below 30 or above 70 will
     /// trigger a new insight.
     /// </summary>
-    public class RsiAlphaModel : IAlphaModel
+    public class RsiAlphaModel : AlphaModel
     {
         private readonly Dictionary<Symbol, SymbolData> _symbolDataBySymbol = new Dictionary<Symbol, SymbolData>();
 
         private readonly int _period;
+        private readonly Resolution _resolution;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RsiAlphaModel"/> class
         /// </summary>
         /// <param name="period">The RSI indicator period</param>
+        /// <param name="resolution">The resolution of data sent into the RSI indicator</param>
         public RsiAlphaModel(
-            int period = 14
+            int period = 14,
+            Resolution resolution = Resolution.Daily
             )
         {
             _period = period;
+            _resolution = resolution;
+            Name = $"{nameof(RsiAlphaModel)}({_period},{_resolution})";
         }
 
         /// <summary>
@@ -51,7 +54,7 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="data">The new data available</param>
         /// <returns>The new insights generated</returns>
-        public IEnumerable<Insight> Update(QCAlgorithmFramework algorithm, Slice data)
+        public override IEnumerable<Insight> Update(QCAlgorithm algorithm, Slice data)
         {
             var insights = new List<Insight>();
             foreach (var kvp in _symbolDataBySymbol)
@@ -63,17 +66,16 @@ namespace QuantConnect.Algorithm.Framework.Alphas
 
                 if (state != previousState && rsi.IsReady)
                 {
-                    var resolution = algorithm.Securities[symbol].Resolution;
-                    var insightPeriod = resolution.ToTimeSpan().Multiply(_period);
+                    var insightPeriod = _resolution.ToTimeSpan().Multiply(_period);
 
                     switch (state)
                     {
                         case State.TrippedLow:
-                            insights.Add(new Insight(symbol, InsightType.Price, InsightDirection.Up, insightPeriod));
+                            insights.Add(Insight.Price(symbol, insightPeriod, InsightDirection.Up));
                             break;
 
                         case State.TrippedHigh:
-                            insights.Add(new Insight(symbol, InsightType.Price, InsightDirection.Down, insightPeriod));
+                            insights.Add(Insight.Price(symbol, insightPeriod, InsightDirection.Down));
                             break;
                     }
                 }
@@ -90,7 +92,7 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// </summary>
         /// <param name="algorithm">The algorithm instance that experienced the change in securities</param>
         /// <param name="changes">The security additions and removals from the algorithm</param>
-        public void OnSecuritiesChanged(QCAlgorithmFramework algorithm, SecurityChanges changes)
+        public override void OnSecuritiesChanged(QCAlgorithm algorithm, SecurityChanges changes)
         {
             // clean up data for removed securities
             if (changes.RemovedSecurities.Count > 0)
@@ -107,37 +109,30 @@ namespace QuantConnect.Algorithm.Framework.Alphas
             }
 
             // initialize data for added securities
-            if (changes.AddedSecurities.Count > 0)
+            var addedSymbols = new List<Symbol>();
+            foreach (var added in changes.AddedSecurities)
             {
-                var newSymbolData = new List<SymbolData>();
-                foreach (var added in changes.AddedSecurities)
+                if (!_symbolDataBySymbol.ContainsKey(added.Symbol))
                 {
-                    if (!_symbolDataBySymbol.ContainsKey(added.Symbol))
-                    {
-                        var rsi = algorithm.RSI(added.Symbol, _period, MovingAverageType.Wilders, added.Resolution);
-                        var symbolData = new SymbolData(added.Symbol, rsi);
-                        _symbolDataBySymbol[added.Symbol] = symbolData;
-                        newSymbolData.Add(symbolData);
-                    }
+                    var rsi = algorithm.RSI(added.Symbol, _period, MovingAverageType.Wilders, _resolution);
+                    var symbolData = new SymbolData(added.Symbol, rsi);
+                    _symbolDataBySymbol[added.Symbol] = symbolData;
+                    addedSymbols.Add(symbolData.Symbol);
                 }
+            }
 
-                // seed new indicators using history request
-                var history = algorithm.History(newSymbolData.Select(x => x.Symbol), _period);
-                foreach (var slice in history)
-                {
-                    foreach (var symbol in slice.Keys)
+            if (addedSymbols.Count > 0)
+            {
+                // warmup our indicators by pushing history through the consolidators
+                algorithm.History(addedSymbols, _period, _resolution)
+                    .PushThrough(data =>
                     {
-                        var value = slice[symbol];
-                        var list = value as IList;
-                        var data = (BaseData) (list != null ? list[list.Count - 1] : value);
-
                         SymbolData symbolData;
-                        if (_symbolDataBySymbol.TryGetValue(symbol, out symbolData))
+                        if (_symbolDataBySymbol.TryGetValue(data.Symbol, out symbolData))
                         {
                             symbolData.RSI.Update(data.EndTime, data.Value);
                         }
-                    }
-                }
+                    });
             }
         }
 

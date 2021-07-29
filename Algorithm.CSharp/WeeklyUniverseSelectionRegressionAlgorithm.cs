@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -17,6 +17,7 @@ using System.Collections.Generic;
 using System.Linq;
 using QuantConnect.Data.Market;
 using QuantConnect.Data.UniverseSelection;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Algorithm.CSharp
 {
@@ -24,7 +25,7 @@ namespace QuantConnect.Algorithm.CSharp
     /// Regression algorithm to test universe additions and removals with open positions
     /// </summary>
     /// <meta name="tag" content="regression test" />
-    public class WeeklyUniverseSelectionRegressionAlgorithm : QCAlgorithm
+    public class WeeklyUniverseSelectionRegressionAlgorithm : QCAlgorithm, IRegressionAlgorithmDefinition
     {
         private SecurityChanges _changes = SecurityChanges.None;
 
@@ -81,5 +82,64 @@ namespace QuantConnect.Algorithm.CSharp
             _changes = changes;
             Log(Time + " " + changes);
         }
+
+        /// <summary>
+        /// This is used by the regression test system to indicate if the open source Lean repository has the required data to run this algorithm.
+        /// </summary>
+        public bool CanRunLocally { get; } = true;
+
+        /// <summary>
+        /// This is used by the regression test system to indicate which languages this algorithm is written in.
+        /// </summary>
+        public Language[] Languages { get; } = { Language.CSharp, Language.Python };
+
+        /// <summary>
+        /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
+        /// </summary>
+        public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
+        {
+            {"Total Trades", "8"},
+            {"Average Win", "0.64%"},
+            {"Average Loss", "-0.53%"},
+            {"Compounding Annual Return", "-10.772%"},
+            {"Drawdown", "2.200%"},
+            {"Expectancy", "-0.448"},
+            {"Net Profit", "-0.953%"},
+            {"Sharpe Ratio", "-1.627"},
+            {"Probabilistic Sharpe Ratio", "20.773%"},
+            {"Loss Rate", "75%"},
+            {"Win Rate", "25%"},
+            {"Profit-Loss Ratio", "1.21"},
+            {"Alpha", "-0.216"},
+            {"Beta", "0.214"},
+            {"Annual Standard Deviation", "0.063"},
+            {"Annual Variance", "0.004"},
+            {"Information Ratio", "-5.581"},
+            {"Tracking Error", "0.114"},
+            {"Treynor Ratio", "-0.478"},
+            {"Total Fees", "$29.43"},
+            {"Estimated Strategy Capacity", "$5600000.00"},
+            {"Lowest Capacity Asset", "IBM R735QTJ8XC9X"},
+            {"Fitness Score", "0.05"},
+            {"Kelly Criterion Estimate", "0"},
+            {"Kelly Criterion Probability Value", "0"},
+            {"Sortino Ratio", "-2.271"},
+            {"Return Over Maximum Drawdown", "-5.43"},
+            {"Portfolio Turnover", "0.362"},
+            {"Total Insights Generated", "0"},
+            {"Total Insights Closed", "0"},
+            {"Total Insights Analysis Completed", "0"},
+            {"Long Insight Count", "0"},
+            {"Short Insight Count", "0"},
+            {"Long/Short Ratio", "100%"},
+            {"Estimated Monthly Alpha Value", "$0"},
+            {"Total Accumulated Estimated Alpha Value", "$0"},
+            {"Mean Population Estimated Insight Value", "$0"},
+            {"Mean Population Direction", "0%"},
+            {"Mean Population Magnitude", "0%"},
+            {"Rolling Averaged Population Direction", "0%"},
+            {"Rolling Averaged Population Magnitude", "0%"},
+            {"OrderListHash", "8e9ea215681a3faf227b9908a7235884"}
+        };
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -14,7 +14,9 @@
 */
 
 using System;
-using QuantConnect.Data.Market;
+using System.Collections.Generic;
+using QuantConnect.Data;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Algorithm.CSharp
 {
@@ -22,7 +24,7 @@ namespace QuantConnect.Algorithm.CSharp
     /// Algorithm used for regression tests purposes
     /// </summary>
     /// <meta name="tag" content="regression test" />
-    public class RegressionAlgorithm : QCAlgorithm
+    public class RegressionAlgorithm : QCAlgorithm, IRegressionAlgorithmDefinition
     {
         public override void Initialize()
         {
@@ -39,14 +41,13 @@ namespace QuantConnect.Algorithm.CSharp
         }
 
         private DateTime lastTradeTradeBars;
-        private DateTime lastTradeTicks;
         private TimeSpan tradeEvery = TimeSpan.FromMinutes(1);
-        public void OnData(TradeBars data)
+        public override void OnData(Slice data)
         {
             if (Time - lastTradeTradeBars < tradeEvery) return;
             lastTradeTradeBars = Time;
 
-            foreach (var kvp in data)
+            foreach (var kvp in data.Bars)
             {
                 var symbol = kvp.Key;
                 var bar = kvp.Value;
@@ -68,5 +69,64 @@ namespace QuantConnect.Algorithm.CSharp
                 }
             }
         }
+
+        /// <summary>
+        /// This is used by the regression test system to indicate if the open source Lean repository has the required data to run this algorithm.
+        /// </summary>
+        public bool CanRunLocally { get; } = true;
+
+        /// <summary>
+        /// This is used by the regression test system to indicate which languages this algorithm is written in.
+        /// </summary>
+        public Language[] Languages { get; } = { Language.CSharp, Language.Python };
+
+        /// <summary>
+        /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
+        /// </summary>
+        public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
+        {
+            {"Total Trades", "1590"},
+            {"Average Win", "0.00%"},
+            {"Average Loss", "0.00%"},
+            {"Compounding Annual Return", "-1.167%"},
+            {"Drawdown", "0.000%"},
+            {"Expectancy", "-0.974"},
+            {"Net Profit", "-0.016%"},
+            {"Sharpe Ratio", "-8.696"},
+            {"Probabilistic Sharpe Ratio", "0.002%"},
+            {"Loss Rate", "99%"},
+            {"Win Rate", "1%"},
+            {"Profit-Loss Ratio", "3.17"},
+            {"Alpha", "-0.006"},
+            {"Beta", "-0.001"},
+            {"Annual Standard Deviation", "0.001"},
+            {"Annual Variance", "0"},
+            {"Information Ratio", "-7.193"},
+            {"Tracking Error", "0.195"},
+            {"Treynor Ratio", "8.201"},
+            {"Total Fees", "$1590.00"},
+            {"Estimated Strategy Capacity", "$67000000.00"},
+            {"Lowest Capacity Asset", "AIG R735QTJ8XC9X"},
+            {"Fitness Score", "0"},
+            {"Kelly Criterion Estimate", "0"},
+            {"Kelly Criterion Probability Value", "0"},
+            {"Sortino Ratio", "-14.995"},
+            {"Return Over Maximum Drawdown", "-72.578"},
+            {"Portfolio Turnover", "0.018"},
+            {"Total Insights Generated", "0"},
+            {"Total Insights Closed", "0"},
+            {"Total Insights Analysis Completed", "0"},
+            {"Long Insight Count", "0"},
+            {"Short Insight Count", "0"},
+            {"Long/Short Ratio", "100%"},
+            {"Estimated Monthly Alpha Value", "$0"},
+            {"Total Accumulated Estimated Alpha Value", "$0"},
+            {"Mean Population Estimated Insight Value", "$0"},
+            {"Mean Population Direction", "0%"},
+            {"Mean Population Magnitude", "0%"},
+            {"Rolling Averaged Population Direction", "0%"},
+            {"Rolling Averaged Population Magnitude", "0%"},
+            {"OrderListHash", "98388f6232375a64b6858a6e3e82c321"}
+        };
     }
 }

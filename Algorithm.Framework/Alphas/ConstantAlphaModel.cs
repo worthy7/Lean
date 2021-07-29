@@ -18,19 +18,21 @@ using System.Collections.Generic;
 using QuantConnect.Data;
 using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Securities;
+using static System.FormattableString;
 
 namespace QuantConnect.Algorithm.Framework.Alphas
 {
     /// <summary>
     /// Provides an implementation of <see cref="IAlphaModel"/> that always returns the same insight for each security
     /// </summary>
-    public class ConstantAlphaModel : IAlphaModel
+    public class ConstantAlphaModel : AlphaModel
     {
         private readonly InsightType _type;
         private readonly InsightDirection _direction;
         private readonly TimeSpan _period;
         private readonly double? _magnitude;
         private readonly double? _confidence;
+        private readonly double? _weight;
         private readonly HashSet<Security> _securities;
         private readonly Dictionary<Symbol, DateTime> _insightsTimeBySymbol;
 
@@ -53,7 +55,8 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// <param name="period">The period over which the insight with come to fruition</param>
         /// <param name="magnitude">The predicted change in magnitude as a +- percentage</param>
         /// <param name="confidence">The confidence in the insight</param>
-        public ConstantAlphaModel(InsightType type, InsightDirection direction, TimeSpan period, double? magnitude, double? confidence)
+        /// <param name="weight">The portfolio weight of the insights</param>
+        public ConstantAlphaModel(InsightType type, InsightDirection direction, TimeSpan period, double? magnitude, double? confidence, double? weight = null)
         {
             _type = type;
             _direction = direction;
@@ -62,9 +65,23 @@ namespace QuantConnect.Algorithm.Framework.Alphas
             // Optional
             _magnitude = magnitude;
             _confidence = confidence;
+            _weight = weight;
 
             _securities = new HashSet<Security>();
             _insightsTimeBySymbol = new Dictionary<Symbol, DateTime>();
+
+            Name = $"{nameof(ConstantAlphaModel)}({type},{direction},{period}";
+            if (magnitude.HasValue)
+            {
+                Name += Invariant($",{magnitude.Value}");
+            }
+
+            if (confidence.HasValue)
+            {
+                Name += Invariant($",{confidence.Value}");
+            }
+
+            Name += ")";
         }
 
         /// <summary>
@@ -73,13 +90,16 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// <param name="algorithm">The algorithm instance</param>
         /// <param name="data">The new data available</param>
         /// <returns>The new insights generated</returns>
-        public IEnumerable<Insight> Update(QCAlgorithmFramework algorithm, Slice data)
+        public override IEnumerable<Insight> Update(QCAlgorithm algorithm, Slice data)
         {
             foreach (var security in _securities)
             {
-                if (ShouldEmitInsight(algorithm.UtcTime, security.Symbol))
+                // security price could be zero until we get the first data point. e.g. this could happen
+                // when adding both forex and equities, we will first get a forex data point
+                if (security.Price != 0
+                    && ShouldEmitInsight(algorithm.UtcTime, security.Symbol))
                 {
-                    yield return new Insight(security.Symbol, _type, _direction, _period, _magnitude, _confidence);
+                    yield return new Insight(security.Symbol, _period, _type, _direction, _magnitude, _confidence, weight: _weight);
                 }
             }
         }
@@ -89,7 +109,7 @@ namespace QuantConnect.Algorithm.Framework.Alphas
         /// </summary>
         /// <param name="algorithm">The algorithm instance that experienced the change in securities</param>
         /// <param name="changes">The security additions and removals from the algorithm</param>
-        public void OnSecuritiesChanged(QCAlgorithmFramework algorithm, SecurityChanges changes)
+        public override void OnSecuritiesChanged(QCAlgorithm algorithm, SecurityChanges changes)
         {
             NotifiedSecurityChanges.UpdateCollection(_securities, changes);
 
@@ -100,7 +120,12 @@ namespace QuantConnect.Algorithm.Framework.Alphas
             }
         }
 
-        private bool ShouldEmitInsight(DateTime utcTime, Symbol symbol)
+        /// <summary>
+        /// Determine if its time to emit insight for this symbol
+        /// </summary>
+        /// <param name="utcTime">Time of the insight</param>
+        /// <param name="symbol">The symbol to emit an insight for</param>
+        protected virtual bool ShouldEmitInsight(DateTime utcTime, Symbol symbol)
         {
             DateTime generatedTimeUtc;
             if (_insightsTimeBySymbol.TryGetValue(symbol, out generatedTimeUtc))

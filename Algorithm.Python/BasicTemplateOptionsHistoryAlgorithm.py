@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 # 
 # Licensed under the Apache License, Version 2.0 (the "License"); 
@@ -11,18 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Securities.Option import OptionPriceModels
-from QuantConnect.Data.UniverseSelection import *
-from datetime import timedelta
-import decimal as d
+from AlgorithmImports import *
 
 ### <summary>
 ### Example demonstrating how to access to options history for a given underlying equity security.
@@ -41,13 +30,22 @@ class BasicTemplateOptionsHistoryAlgorithm(QCAlgorithm):
         self.SetCash(1000000)
 
         option = self.AddOption("GOOG")
+        # add the initial contract filter 
+        # SetFilter method accepts timedelta objects or integer for days.
+        # The following statements yield the same filtering criteria
+        option.SetFilter(-2, +2, 0, 180)
+        # option.SetFilter(-2,2, timedelta(0), timedelta(180))
 
+        # set the pricing model for Greeks and volatility
+        # find more pricing models https://www.quantconnect.com/lean/documentation/topic27704.html
         option.PriceModel = OptionPriceModels.CrankNicolsonFD()
-        option.SetFilter(-2,2, timedelta(0), timedelta(180))
-
-        self.SetBenchmark("GOOG")
+        # set the warm-up period for the pricing model
+        self.SetWarmUp(TimeSpan.FromDays(4))
+        # set the benchmark to be the initial cash
+        self.SetBenchmark(lambda x: 1000000)
 
     def OnData(self,slice):
+        if self.IsWarmingUp: return
         if not self.Portfolio.Invested:
             for chain in slice.OptionChains:
                 volatility = self.Securities[chain.Key.Underlying].VolatilityModel.Volatility
@@ -69,11 +67,11 @@ class BasicTemplateOptionsHistoryAlgorithm(QCAlgorithm):
                     contract.ImpliedVolatility))
 
     def OnSecuritiesChanged(self, changes):
-        if changes == None: return
         for change in changes.AddedSecurities:
-            history = self.History(change.Symbol, 10, Resolution.Hour).sort_index(level='time', ascending=False)[:3]
-
-            for i in range(len(history)):
-                self.Log("History: " + str(history.iloc[i].name[0])
-                        + ": " + str(history.iloc[i].name[1])
-                        + " > " + str(history.iloc[i]['close']))
+            # only print options price
+            if change.Symbol.Value == "GOOG": return
+            history = self.History(change.Symbol, 10, Resolution.Minute).sort_index(level='time', ascending=False)[:3]
+            for index, row in history.iterrows():
+                self.Log("History: " + str(index[3])
+                        + ": " + index[4].strftime("%m/%d/%Y %I:%M:%S %p")
+                        + " > " + str(row.close))

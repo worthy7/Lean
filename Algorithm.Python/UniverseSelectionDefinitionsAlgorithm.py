@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,17 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System.Core")
-AddReference("QuantConnect.Common")
-AddReference("QuantConnect.Algorithm")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import QCAlgorithm
-from QuantConnect.Data.Market import *
-from QuantConnect.Data.UniverseSelection import *
-from datetime import timedelta
+from AlgorithmImports import *
 
 ### <summary>
 ### This algorithm shows some of the various helper methods available when defining universes
@@ -56,7 +46,7 @@ class UniverseSelectionDefinitionsAlgorithm(QCAlgorithm):
         self.changes = None
 
     def OnData(self, data):
-        if self.changes == None: return
+        if self.changes is None: return
 
         # liquidate securities that fell out of our universe
         for security in self.changes.RemovedSecurities:
@@ -68,7 +58,7 @@ class UniverseSelectionDefinitionsAlgorithm(QCAlgorithm):
             if not security.Invested:
                 self.MarketOrder(security.Symbol, 10)
 
-        self.changes = None;
+        self.changes = None
 
 
     # this event fires whenever we have changes to our universe

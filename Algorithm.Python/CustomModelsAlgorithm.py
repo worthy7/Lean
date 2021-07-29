@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,31 +11,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Orders import OrderStatus
-from QuantConnect.Orders.Fills import ImmediateFillModel
-import numpy as np
-import decimal as d
+from AlgorithmImports import *
 import random
 
 ### <summary>
-### Demonstration of using custom fee, slippage and fill models for modelling transactions in backtesting.
+### Demonstration of using custom fee, slippage, fill, and buying power models for modelling transactions in backtesting.
 ### QuantConnect allows you to model all orders as deeply and accurately as you need.
 ### </summary>
 ### <meta name="tag" content="trading and orders" />
 ### <meta name="tag" content="transaction fees and slippage" />
+### <meta name="tag" content="custom buying power models" />
 ### <meta name="tag" content="custom transaction models" />
 ### <meta name="tag" content="custom slippage models" />
 ### <meta name="tag" content="custom fee models" />
 class CustomModelsAlgorithm(QCAlgorithm):
-    '''Demonstration of using custom fee, slippage and fill models for modelling transactions in backtesting.
+    '''Demonstration of using custom fee, slippage, fill, and buying power models for modelling transactions in backtesting.
     QuantConnect allows you to model all orders as deeply and accurately as you need.'''
 
     def Initialize(self):
@@ -48,37 +38,40 @@ class CustomModelsAlgorithm(QCAlgorithm):
         self.security.SetFeeModel(CustomFeeModel(self))
         self.security.SetFillModel(CustomFillModel(self))
         self.security.SetSlippageModel(CustomSlippageModel(self))
+        self.security.SetBuyingPowerModel(CustomBuyingPowerModel(self))
 
-        
+
     def OnData(self, data):
         open_orders = self.Transactions.GetOpenOrders(self.spy)
         if len(open_orders) != 0: return
 
         if self.Time.day > 10 and self.security.Holdings.Quantity <= 0:
             quantity = self.CalculateOrderQuantity(self.spy, .5)
-            self.Log("MarketOrder: " + str(quantity))
+            self.Log(f"MarketOrder: {quantity}")
             self.MarketOrder(self.spy, quantity, True)   # async needed for partial fill market orders
-        
+
         elif self.Time.day > 20 and self.security.Holdings.Quantity >= 0:
             quantity = self.CalculateOrderQuantity(self.spy, -.5)
-            self.Log("MarketOrder: " + str(quantity))
+            self.Log(f"MarketOrder: {quantity}")
             self.MarketOrder(self.spy, quantity, True)   # async needed for partial fill market orders
 
 # If we want to use methods from other models, you need to inherit from one of them
 class CustomFillModel(ImmediateFillModel):
     def __init__(self, algorithm):
         self.algorithm = algorithm
-        self.base = ImmediateFillModel()
         self.absoluteRemainingByOrderId = {}
-        random.seed(100)
-    
+        self.random = Random(387510346)
+
     def MarketFill(self, asset, order):
-        #if not _absoluteRemainingByOrderId.TryGetValue(order.Id, absoluteRemaining):
         absoluteRemaining = order.AbsoluteQuantity
-        self.absoluteRemainingByOrderId[order.Id] = order.AbsoluteQuantity
-        fill = self.base.MarketFill(asset, order)
-        absoluteFillQuantity = int(min(absoluteRemaining, random.randint(0, 2*int(order.AbsoluteQuantity))))
+
+        if order.Id in self.absoluteRemainingByOrderId.keys():
+            absoluteRemaining = self.absoluteRemainingByOrderId[order.Id]
+
+        fill = super().MarketFill(asset, order)
+        absoluteFillQuantity = int(min(absoluteRemaining, self.random.Next(0, 2*int(order.AbsoluteQuantity))))
         fill.FillQuantity = np.sign(order.Quantity) * absoluteFillQuantity
+        
         if absoluteRemaining == absoluteFillQuantity:
             fill.Status = OrderStatus.Filled
             if self.absoluteRemainingByOrderId.get(order.Id):
@@ -87,25 +80,37 @@ class CustomFillModel(ImmediateFillModel):
             absoluteRemaining = absoluteRemaining - absoluteFillQuantity
             self.absoluteRemainingByOrderId[order.Id] = absoluteRemaining
             fill.Status = OrderStatus.PartiallyFilled
-        self.algorithm.Log("CustomFillModel: " + str(fill))
+        self.algorithm.Log(f"CustomFillModel: {fill}")
         return fill
 
-class CustomFeeModel:
+class CustomFeeModel(FeeModel):
     def __init__(self, algorithm):
         self.algorithm = algorithm
 
-    def GetOrderFee(self, security, order):
+    def GetOrderFee(self, parameters):
         # custom fee math
-        fee = max(1, security.Price * order.AbsoluteQuantity * d.Decimal(0.00001))
-        self.algorithm.Log("CustomFeeModel: " + str(fee))
-        return fee
+        fee = max(1, parameters.Security.Price
+                  * parameters.Order.AbsoluteQuantity
+                  * 0.00001)
+        self.algorithm.Log(f"CustomFeeModel: {fee}")
+        return OrderFee(CashAmount(fee, "USD"))
 
 class CustomSlippageModel:
     def __init__(self, algorithm):
         self.algorithm = algorithm
-        
+
     def GetSlippageApproximation(self, asset, order):
         # custom slippage math
-        slippage = asset.Price * d.Decimal(0.0001 * np.log10(2*float(order.AbsoluteQuantity)))
-        self.algorithm.Log("CustomSlippageModel: " + str(slippage))
+        slippage = asset.Price * 0.0001 * np.log10(2*float(order.AbsoluteQuantity))
+        self.algorithm.Log(f"CustomSlippageModel: {slippage}")
         return slippage
+
+class CustomBuyingPowerModel(BuyingPowerModel):
+    def __init__(self, algorithm):
+        self.algorithm = algorithm
+
+    def HasSufficientBuyingPowerForOrder(self, parameters):
+        # custom behavior: this model will assume that there is always enough buying power
+        hasSufficientBuyingPowerForOrderResult = HasSufficientBuyingPowerForOrderResult(True)
+        self.algorithm.Log(f"CustomBuyingPowerModel: {hasSufficientBuyingPowerForOrderResult.IsSufficient}")
+        return hasSufficientBuyingPowerForOrderResult

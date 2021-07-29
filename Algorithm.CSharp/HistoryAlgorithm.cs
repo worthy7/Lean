@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -17,9 +17,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using QuantConnect.Data;
+using QuantConnect.Data.Custom;
 using QuantConnect.Data.Market;
 using QuantConnect.Indicators;
 using QuantConnect.Securities.Equity;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Algorithm.CSharp
 {
@@ -31,7 +33,7 @@ namespace QuantConnect.Algorithm.CSharp
     /// <meta name="tag" content="history and warm up" />
     /// <meta name="tag" content="history" />
     /// <meta name="tag" content="warm up" />
-    public class HistoryAlgorithm : QCAlgorithm
+    public class HistoryAlgorithm : QCAlgorithm, IRegressionAlgorithmDefinition
     {
         private int _count;
         private SimpleMovingAverage _spyDailySma;
@@ -277,6 +279,79 @@ namespace QuantConnect.Algorithm.CSharp
             if (!string.IsNullOrWhiteSpace(unexpectedSymbolsString))
             {
                 throw new Exception($"{methodCall} contains unexpected symbols: {unexpectedSymbolsString}");
+            }
+        }
+
+        /// <summary>
+        /// This is used by the regression test system to indicate if the open source Lean repository has the required data to run this algorithm.
+        /// </summary>
+        public bool CanRunLocally { get; } = true;
+
+        /// <summary>
+        /// This is used by the regression test system to indicate which languages this algorithm is written in.
+        /// </summary>
+        public Language[] Languages { get; } = { Language.CSharp, Language.Python };
+
+        /// <summary>
+        /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
+        /// </summary>
+        public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
+        {
+            {"Total Trades", "1"},
+            {"Average Win", "0%"},
+            {"Average Loss", "0%"},
+            {"Compounding Annual Return", "363.283%"},
+            {"Drawdown", "1.200%"},
+            {"Expectancy", "0"},
+            {"Net Profit", "1.694%"},
+            {"Sharpe Ratio", "8.671"},
+            {"Probabilistic Sharpe Ratio", "67.159%"},
+            {"Loss Rate", "0%"},
+            {"Win Rate", "0%"},
+            {"Profit-Loss Ratio", "0"},
+            {"Alpha", "1.614"},
+            {"Beta", "0.062"},
+            {"Annual Standard Deviation", "0.223"},
+            {"Annual Variance", "0.05"},
+            {"Information Ratio", "-11.911"},
+            {"Tracking Error", "0.271"},
+            {"Treynor Ratio", "31.034"},
+            {"Total Fees", "$3.45"},
+            {"Estimated Strategy Capacity", "$970000000.00"},
+            {"Lowest Capacity Asset", "SPY R735QTJ8XC9X"},
+            {"Fitness Score", "0.252"},
+            {"Kelly Criterion Estimate", "0"},
+            {"Kelly Criterion Probability Value", "0"},
+            {"Sortino Ratio", "79228162514264337593543950335"},
+            {"Return Over Maximum Drawdown", "308.644"},
+            {"Portfolio Turnover", "0.252"},
+            {"Total Insights Generated", "0"},
+            {"Total Insights Closed", "0"},
+            {"Total Insights Analysis Completed", "0"},
+            {"Long Insight Count", "0"},
+            {"Short Insight Count", "0"},
+            {"Long/Short Ratio", "100%"},
+            {"Estimated Monthly Alpha Value", "$0"},
+            {"Total Accumulated Estimated Alpha Value", "$0"},
+            {"Mean Population Estimated Insight Value", "$0"},
+            {"Mean Population Direction", "0%"},
+            {"Mean Population Magnitude", "0%"},
+            {"Rolling Averaged Population Direction", "0%"},
+            {"Rolling Averaged Population Magnitude", "0%"},
+            {"OrderListHash", "33d01821923c397f999cfb2e5b5928ad"}
+        };
+
+        /// <summary>
+        /// Custom quandl data type for setting customized value column name. Value column is used for the primary trading calculations and charting.
+        /// </summary>
+        public class QuandlFuture : Quandl
+        {
+            /// <summary>
+            /// Initializes a new instance of the <see cref="QuandlFuture"/> class.
+            /// </summary>
+            public QuandlFuture()
+                : base(valueColumnName: "Settle")
+            {
             }
         }
     }

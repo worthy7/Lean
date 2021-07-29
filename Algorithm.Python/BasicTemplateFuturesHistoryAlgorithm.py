@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,17 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Data import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Securities import *
-from datetime import timedelta
+from AlgorithmImports import *
 
 ### <summary>
 ### This example demonstrates how to get access to futures history for a given root symbol.
@@ -46,32 +36,40 @@ class BasicTemplateFuturesHistoryAlgorithm(QCAlgorithm):
 
         futureGC = self.AddFuture(Futures.Metals.Gold, Resolution.Minute)
         futureGC.SetFilter(timedelta(0), timedelta(182))
-        self.SetBenchmark("SPY")
+
+        self.SetBenchmark(lambda x: 1000000)
+
+        self.Schedule.On(self.DateRules.EveryDay(), self.TimeRules.Every(timedelta(hours=1)), self.MakeHistoryCall)
+        self.successCount = 0
+
+    def MakeHistoryCall(self):
+        history = self.History(self.Securities.keys(), 10, Resolution.Minute)
+        if len(history) < 10:
+            raise Exception(f'Empty history at {self.Time}')
+        self.successCount += 1
+
+    def OnEndOfAlgorithm(self):
+        if self.successCount < 49:
+            raise Exception(f'Scheduled Event did not assert history call as many times as expected: {_successCount}/49')
 
     def OnData(self,slice):
-        if not self.Portfolio.Invested:
-            for chain in slice.FutureChains:
-                for contract in chain.Value:
-                    self.Log("{0},Bid={1} Ask={2} Last={3} OI={4}".format(
-                            contract.Symbol.Value,
-                            contract.BidPrice,
-                            contract.AskPrice,
-                            contract.LastPrice,
-                            contract.OpenInterest))
-
+        if self.Portfolio.Invested: return
+        for chain in slice.FutureChains:
+            for contract in chain.Value:
+                self.Log(f'{contract.Symbol.Value},' +
+                         f'Bid={contract.BidPrice} ' +
+                         f'Ask={contract.AskPrice} ' +
+                         f'Last={contract.LastPrice} ' +
+                         f'OI={contract.OpenInterest}')
 
     def OnSecuritiesChanged(self, changes):
-        #if changes == SecurityChanges.None: return
         for change in changes.AddedSecurities:
-            history = self.History(change.Symbol, 10, Resolution.Daily).sort_index(level='time', ascending=False)[:3]
-        
-            for i in range(len(history)):
-                self.Log("History: " + str(history.iloc[i].name[0])
-                        + ": " + str(history.iloc[i].name[1].strftime("%m/%d/%Y %I:%M:%S %p"))
-                        + " > " + str(history.iloc[i]['close']))
-                        
+            history = self.History(change.Symbol, 10, Resolution.Minute).sort_index(level='time', ascending=False)[:3]
+
+            for index, row in history.iterrows():
+                self.Log(f'History: {index[1]} : {index[2]:%m/%d/%Y %I:%M:%S %p} > {row.close}')
+
     def OnOrderEvent(self, orderEvent):
         # Order fill event handler. On an order fill update the resulting information is passed to this method.
         # Order event details containing details of the events
-        self.Log(str(orderEvent))
-
+        self.Log(f'{orderEvent}')

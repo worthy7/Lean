@@ -1,11 +1,11 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,9 +14,8 @@
  *
 */
 
-using System;
 using System.Collections.Concurrent;
-using QuantConnect.Configuration;
+using System.IO;
 using QuantConnect.Interfaces;
 using QuantConnect.Util;
 
@@ -27,27 +26,28 @@ namespace QuantConnect.Data.Auxiliary
     /// </summary>
     public class LocalDiskFactorFileProvider : IFactorFileProvider
     {
-        private readonly IMapFileProvider _mapFileProvider;
+        private IMapFileProvider _mapFileProvider;
+        private IDataProvider _dataProvider;
         private readonly ConcurrentDictionary<Symbol, FactorFile> _cache;
 
         /// <summary>
-        /// Initializes a new instance of <see cref="LocalDiskFactorFileProvider"/> that uses configuration
-        /// to resolve an instance of <see cref="IMapFileProvider"/> from the <see cref="Composer.Instance"/>
+        /// Creates a new instance of the <see cref="LocalDiskFactorFileProvider"/>
         /// </summary>
         public LocalDiskFactorFileProvider()
-            : this(Composer.Instance.GetExportedValueByTypeName<IMapFileProvider>(Config.Get("map-file-provider", "LocalDiskMapFileProvider")))
         {
+            _cache = new ConcurrentDictionary<Symbol, FactorFile>();
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="LocalDiskFactorFileProvider"/> using the specified
-        /// map file provider
+        /// Initializes our FactorFileProvider by supplying our mapFileProvider
+        /// and dataProvider
         /// </summary>
-        /// <param name="mapFileProvider">The map file provider used to resolve permticks of securities</param>
-        public LocalDiskFactorFileProvider(IMapFileProvider mapFileProvider)
+        /// <param name="mapFileProvider">MapFileProvider to use</param>
+        /// <param name="dataProvider">DataProvider to use</param>
+        public void Initialize(IMapFileProvider mapFileProvider, IDataProvider dataProvider)
         {
             _mapFileProvider = mapFileProvider;
-            _cache = new ConcurrentDictionary<Symbol, FactorFile>();
+            _dataProvider = dataProvider;
         }
 
         /// <summary>
@@ -86,14 +86,24 @@ namespace QuantConnect.Data.Auxiliary
         /// </summary>
         private FactorFile GetFactorFile(Symbol symbol, string permtick, string market)
         {
-            if (FactorFile.HasScalingFactors(permtick, market))
+            FactorFile factorFile = null;
+
+            var path = Path.Combine(Globals.DataFolder, "equity", market, "factor_files", permtick.ToLowerInvariant() + ".csv");
+
+            var factorFileStream = _dataProvider.Fetch(path);
+            if (factorFileStream != null)
             {
-                var factorFile = FactorFile.Read(permtick, market);
+                factorFile = FactorFile.Read(permtick, factorFileStream);
+                factorFileStream.DisposeSafely();
                 _cache.AddOrUpdate(symbol, factorFile, (s, c) => factorFile);
-                return factorFile;
             }
-            // return null if not found
-            return null;
+            else
+            {
+                // add null value to the cache, we don't want to check the disk multiple times
+                // but keep existing value if it exists, just in case
+                _cache.AddOrUpdate(symbol, factorFile, (s, oldValue) => oldValue);
+            }
+            return factorFile;
         }
     }
 }

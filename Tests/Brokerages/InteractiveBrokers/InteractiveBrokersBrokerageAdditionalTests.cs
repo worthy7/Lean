@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -24,44 +24,26 @@ using IBApi;
 using NUnit.Framework;
 using QuantConnect.Algorithm;
 using QuantConnect.Brokerages.InteractiveBrokers;
-using QuantConnect.Configuration;
 using QuantConnect.Data;
+using QuantConnect.Data.Auxiliary;
 using QuantConnect.Data.Market;
+using QuantConnect.Lean.Engine.DataFeeds;
+using QuantConnect.Logging;
 using QuantConnect.Securities;
 using Order = QuantConnect.Orders.Order;
 
 namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
 {
     [TestFixture]
-    [Ignore("These tests require the IBController and IB TraderWorkstation to be installed.")]
+    [Explicit("These tests require the IBGateway to be installed.")]
     public class InteractiveBrokersBrokerageAdditionalTests
     {
         private readonly List<Order> _orders = new List<Order>();
 
-        [Test]
-        public void StressTestGetUsdConversion()
+        [Test(Description = "Requires an existing IB connection with the same user credentials.")]
+        public void ThrowsWhenExistingSessionDetected()
         {
-            var brokerage = GetBrokerage();
-            Assert.IsTrue(brokerage.IsConnected);
-
-            // private method testing hack :)
-            var method = brokerage.GetType().GetMethod("GetUsdConversion", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            const string currency = "SEK";
-            const int count = 20;
-
-            for (var i = 1; i <= count; i++)
-            {
-                var value = (decimal)method.Invoke(brokerage, new object[] { currency });
-
-                Console.WriteLine(i + " - GetUsdConversion({0}) = {1}", currency, value);
-
-                Assert.IsTrue(value > 0);
-            }
-
-            brokerage.Disconnect();
-            brokerage.Dispose();
-            InteractiveBrokersGatewayRunner.Stop();
+            Assert.Throws<Exception>(() => GetBrokerage());
         }
 
         [Test]
@@ -78,7 +60,7 @@ namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
                     Symbol = "EUR",
                     Exchange = "IDEALPRO",
                     SecType = "CASH",
-                    Currency = "USD"
+                    Currency = Currencies.USD
                 };
                 var parameters = new object[] { contract };
 
@@ -87,12 +69,10 @@ namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
                     var stopwatch = Stopwatch.StartNew();
                     var value = (ContractDetails)method.Invoke(brokerage, parameters);
                     stopwatch.Stop();
-                    Console.WriteLine($"{DateTime.UtcNow:O} Response time: {stopwatch.Elapsed}");
+                    Log.Trace($"{DateTime.UtcNow:O} Response time: {stopwatch.Elapsed}");
                 });
                 while (!result.IsCompleted) Thread.Sleep(1000);
             }
-
-            InteractiveBrokersGatewayRunner.Stop();
         }
 
         [Test]
@@ -132,27 +112,79 @@ namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
                 // each day has 390 minute bars for equities
                 Assert.AreEqual(5 * 390, history.Count);
             }
+        }
 
-            InteractiveBrokersGatewayRunner.Stop();
+        [Test]
+        public void GetHistoryDoesNotThrowError504WhenDisconnected()
+        {
+            using (var brokerage = GetBrokerage())
+            {
+                Assert.IsTrue(brokerage.IsConnected);
+
+                brokerage.Disconnect();
+                Assert.IsFalse(brokerage.IsConnected);
+
+                var hasError = false;
+                brokerage.Message += (s, e) =>
+                {
+                    // ErrorCode: 504 - Not connected
+                    if (e.Code == "504")
+                    {
+                        hasError = true;
+                    }
+                };
+
+                var request = new HistoryRequest(
+                    new DateTime(2021, 1, 1).ConvertToUtc(TimeZones.NewYork),
+                    new DateTime(2021, 1, 27).ConvertToUtc(TimeZones.NewYork),
+                    typeof(TradeBar),
+                    Symbols.SPY,
+                    Resolution.Daily,
+                    SecurityExchangeHours.AlwaysOpen(TimeZones.NewYork),
+                    TimeZones.NewYork,
+                    null,
+                    false,
+                    false,
+                    DataNormalizationMode.Raw,
+                    TickType.Trade);
+
+                var history = brokerage.GetHistory(request).ToList();
+
+                Assert.AreEqual(0, history.Count);
+
+                Assert.IsFalse(hasError);
+            }
         }
 
         private InteractiveBrokersBrokerage GetBrokerage()
         {
-            InteractiveBrokersGatewayRunner.Start(Config.Get("ib-controller-dir"),
-                Config.Get("ib-tws-dir"),
-                Config.Get("ib-user-name"),
-                Config.Get("ib-password"),
-                Config.Get("ib-trading-mode"),
-                Config.GetBool("ib-use-tws")
-                );
-
             // grabs account info from configuration
             var securityProvider = new SecurityProvider();
-            securityProvider[Symbols.USDJPY] = new Security(SecurityExchangeHours.AlwaysOpen(TimeZones.NewYork),
-                new SubscriptionDataConfig(typeof(TradeBar), Symbols.USDJPY, Resolution.Minute, TimeZones.NewYork, TimeZones.NewYork, false, false, false),
-                new Cash(CashBook.AccountCurrency, 0, 1m), SymbolProperties.GetDefault(CashBook.AccountCurrency));
+            securityProvider[Symbols.USDJPY] = new Security(
+                SecurityExchangeHours.AlwaysOpen(TimeZones.NewYork),
+                new SubscriptionDataConfig(
+                    typeof(TradeBar),
+                    Symbols.USDJPY,
+                    Resolution.Minute,
+                    TimeZones.NewYork,
+                    TimeZones.NewYork,
+                    false,
+                    false,
+                    false
+                ),
+                new Cash(Currencies.USD, 0, 1m),
+                SymbolProperties.GetDefault(Currencies.USD),
+                ErrorCurrencyConverter.Instance,
+                RegisteredSecurityDataTypesProvider.Null,
+                new SecurityCache()
+            );
 
-            var brokerage = new InteractiveBrokersBrokerage(new QCAlgorithm(), new OrderProvider(_orders), securityProvider);
+            var brokerage = new InteractiveBrokersBrokerage(
+                new QCAlgorithm(),
+                new OrderProvider(_orders),
+                securityProvider,
+                new AggregationManager(),
+                TestGlobals.MapFileProvider);
             brokerage.Connect();
 
             return brokerage;

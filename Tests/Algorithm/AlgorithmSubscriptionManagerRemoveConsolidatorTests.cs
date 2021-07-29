@@ -19,10 +19,11 @@ using QuantConnect.Algorithm;
 using QuantConnect.Data;
 using QuantConnect.Data.Consolidators;
 using QuantConnect.Data.Market;
+using QuantConnect.Tests.Engine.DataFeeds;
 
 namespace QuantConnect.Tests.Algorithm
 {
-    [TestFixture]
+    [TestFixture, Parallelizable(ParallelScope.All)]
     public class AlgorithmSubscriptionManagerRemoveConsolidatorTests
     {
         [Test]
@@ -30,6 +31,7 @@ namespace QuantConnect.Tests.Algorithm
         {
             bool eventHandlerFired = false;
             var algorithm = new QCAlgorithm();
+            algorithm.SubscriptionManager.SetDataManager(new DataManagerStub(algorithm));
             var security = algorithm.AddEquity("SPY");
             var consolidator = new IdentityDataConsolidator<BaseData>();
             consolidator.DataConsolidated += (sender, consolidated) => eventHandlerFired = true;

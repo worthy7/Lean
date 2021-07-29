@@ -15,20 +15,21 @@
 */
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using NUnit.Framework;
 using QuantConnect.Algorithm;
 using QuantConnect.Data;
 using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Lean.Engine.DataFeeds;
+using QuantConnect.Logging;
 using QuantConnect.Securities;
 using QuantConnect.Util;
 
 namespace QuantConnect.Tests.Engine.DataFeeds
 {
-    [TestFixture, Category("TravisExclude")]
+    [TestFixture, Category("TravisExclude"), Parallelizable(ParallelScope.All)]
     public class SubscriptionSynchronizerTests
     {
         [Test]
@@ -49,6 +50,28 @@ namespace QuantConnect.Tests.Engine.DataFeeds
 
         private void TestSubscriptionSynchronizerSpeed(QCAlgorithm algorithm)
         {
+            var feed = new MockDataFeed();
+            var marketHoursDatabase = MarketHoursDatabase.FromDataFolder();
+            var symbolPropertiesDataBase = SymbolPropertiesDatabase.FromDataFolder();
+            var securityService = new SecurityService(
+                algorithm.Portfolio.CashBook,
+                marketHoursDatabase,
+                symbolPropertiesDataBase,
+                algorithm,
+                RegisteredSecurityDataTypesProvider.Null,
+                new SecurityCacheProvider(algorithm.Portfolio));
+            algorithm.Securities.SetSecurityService(securityService);
+            var dataPermissionManager = new DataPermissionManager();
+            var dataManager = new DataManager(feed,
+                new UniverseSelection(algorithm, securityService, dataPermissionManager, new DefaultDataProvider()),
+                algorithm,
+                algorithm.TimeKeeper,
+                marketHoursDatabase,
+                false,
+                RegisteredSecurityDataTypesProvider.Null,
+                dataPermissionManager);
+            algorithm.SubscriptionManager.SetDataManager(dataManager);
+
             algorithm.Initialize();
             algorithm.PostInitialize();
 
@@ -61,42 +84,45 @@ namespace QuantConnect.Tests.Engine.DataFeeds
 
             var endTimeUtc = algorithm.EndDate.ConvertToUtc(TimeZones.NewYork);
             var startTimeUtc = algorithm.StartDate.ConvertToUtc(TimeZones.NewYork);
-
-            var feed = new AlgorithmManagerTests.MockDataFeed();
-            var universeSelection = new UniverseSelection(feed, algorithm);
-            var synchronizer = new SubscriptionSynchronizer(universeSelection, algorithm.TimeZone, algorithm.Portfolio.CashBook, startTimeUtc);
-
+            var subscriptionBasedTimeProvider = new SubscriptionFrontierTimeProvider(startTimeUtc, dataManager);
+            var timeSliceFactory = new TimeSliceFactory(algorithm.TimeZone);
+            var synchronizer = new SubscriptionSynchronizer(dataManager.UniverseSelection);
+            synchronizer.SetTimeProvider(subscriptionBasedTimeProvider);
+            synchronizer.SetTimeSliceFactory(timeSliceFactory);
             var totalDataPoints = 0;
-            var subscriptions = new List<Subscription>();
+            var subscriptions = dataManager.DataFeedSubscriptions;
             foreach (var kvp in algorithm.Securities)
             {
                 int dataPointCount;
-                subscriptions.Add(CreateSubscription(algorithm, kvp.Value, startTimeUtc, endTimeUtc, out dataPointCount));
+                subscriptions.TryAdd(CreateSubscription(algorithm, kvp.Value, startTimeUtc, endTimeUtc, out dataPointCount));
                 totalDataPoints += dataPointCount;
             }
 
-            // force JIT
-            synchronizer.Sync(subscriptions);
-
             // log what we're doing
-            Console.WriteLine($"Running {subscriptions.Count} subscriptions with a total of {totalDataPoints} data points. Start: {algorithm.StartDate:yyyy-MM-dd} End: {algorithm.EndDate:yyyy-MM-dd}");
+            Log.Trace($"Running {subscriptions.Count()} subscriptions with a total of {totalDataPoints} data points. Start: {algorithm.StartDate:yyyy-MM-dd} End: {algorithm.EndDate:yyyy-MM-dd}");
 
             var count = 0;
-            DateTime currentTime;
-            var dateTimeMaxValue = DateTime.MaxValue;
+            DateTime currentTime = DateTime.MaxValue;
+            DateTime previousValue;
             var stopwatch = Stopwatch.StartNew();
+            var enumerator = synchronizer.Sync(subscriptions, CancellationToken.None).GetEnumerator();
             do
             {
-                var timeSlice = synchronizer.Sync(subscriptions);
+                previousValue = currentTime;
+                enumerator.MoveNext();
+                var timeSlice = enumerator.Current;
                 currentTime = timeSlice.Time;
                 count += timeSlice.DataPointCount;
             }
-            while (currentTime != dateTimeMaxValue);
+            while (currentTime != previousValue);
 
             stopwatch.Stop();
+            enumerator.DisposeSafely();
 
             var kps = count / 1000d / stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Current Time: {currentTime:u}  Elapsed time: {(int)stopwatch.Elapsed.TotalSeconds,4}s  KPS: {kps,7:.00}  COUNT: {count,10}");
+            Log.Trace($"Current Time: {currentTime:u}  Elapsed time: {(int)stopwatch.Elapsed.TotalSeconds,4}s  KPS: {kps,7:.00}  COUNT: {count,10}");
+            Assert.GreaterOrEqual(count, 100); // this assert is for sanity purpose
+            dataManager.RemoveAllSubscriptions();
         }
 
         private Subscription CreateSubscription(QCAlgorithm algorithm, Security security, DateTime startTimeUtc, DateTime endTimeUtc, out int dataPointCount)
@@ -111,11 +137,12 @@ namespace QuantConnect.Tests.Engine.DataFeeds
                 Time = time,
                 EndTime = time + config.Increment
             })
-            .Select(d => SubscriptionData.Create(config, security.Exchange.Hours, offsetProvider, d))
+            .Select(d => SubscriptionData.Create(config, security.Exchange.Hours, offsetProvider, d, config.DataNormalizationMode))
             .ToList();
 
             dataPointCount = data.Count;
-            return new Subscription(universe, security, config, data.GetEnumerator(), offsetProvider, endTimeUtc, endTimeUtc, false);
+            var subscriptionRequest = new SubscriptionRequest(false, universe, security, config, startTimeUtc, endTimeUtc);
+            return new Subscription(subscriptionRequest, data.GetEnumerator(), offsetProvider);
         }
 
         private class DataPoint : BaseData

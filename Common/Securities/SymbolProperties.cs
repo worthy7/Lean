@@ -1,17 +1,19 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
+
+using System;
 
 namespace QuantConnect.Securities
 {
@@ -25,8 +27,7 @@ namespace QuantConnect.Securities
         /// </summary>
         public string Description
         {
-            get; 
-            private set;
+            get;
         }
 
         /// <summary>
@@ -34,8 +35,7 @@ namespace QuantConnect.Securities
         /// </summary>
         public string QuoteCurrency
         {
-            get; 
-            private set;
+            get;
         }
 
         /// <summary>
@@ -43,17 +43,17 @@ namespace QuantConnect.Securities
         /// </summary>
         public decimal ContractMultiplier
         {
-            get; 
+            get;
             protected set;
         }
 
         /// <summary>
         /// The minimum price variation (tick size) for the security
         /// </summary>
-        public decimal MinimumPriceVariation
+        public virtual decimal MinimumPriceVariation
         {
-            get; 
-            private set;
+            get;
+            protected set;
         }
 
         /// <summary>
@@ -62,19 +62,33 @@ namespace QuantConnect.Securities
         public decimal LotSize
         {
             get;
-            private set;
+        }
+
+        /// <summary>
+        /// The market ticker
+        /// </summary>
+        public string MarketTicker
+        {
+            get;
         }
 
         /// <summary>
         /// Creates an instance of the <see cref="SymbolProperties"/> class
         /// </summary>
-        public SymbolProperties(string description, string quoteCurrency, decimal contractMultiplier, decimal minimumPriceVariation, decimal lotSize)
+        public SymbolProperties(string description, string quoteCurrency, decimal contractMultiplier, decimal minimumPriceVariation, decimal lotSize, string marketTicker)
         {
             Description = description;
             QuoteCurrency = quoteCurrency;
             ContractMultiplier = contractMultiplier;
             MinimumPriceVariation = minimumPriceVariation;
             LotSize = lotSize;
+
+            if (LotSize <= 0)
+            {
+                throw new ArgumentException("SymbolProperties LotSize can not be less than or equal to 0");
+            }
+
+            MarketTicker = marketTicker;
         }
 
         /// <summary>
@@ -84,7 +98,7 @@ namespace QuantConnect.Securities
         /// <returns>A default instance of the<see cref="SymbolProperties"/> class</returns>
         public static SymbolProperties GetDefault(string quoteCurrency)
         {
-            return new SymbolProperties("", quoteCurrency.ToUpper(), 1, 0.01m, 1);
+            return new SymbolProperties(string.Empty, quoteCurrency.LazyToUpper(), 1, 0.01m, 1, string.Empty);
         }
     }
 }

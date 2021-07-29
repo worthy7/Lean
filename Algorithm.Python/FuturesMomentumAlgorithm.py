@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,18 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Securities import *
-from datetime import timedelta
-import decimal as d
-import numpy as np
+from AlgorithmImports import *
 
 ### <summary>
 ### EMA cross with SP500 E-mini futures
@@ -43,7 +32,7 @@ class FuturesMomentumAlgorithm(QCAlgorithm):
         self.SetCash(100000)
         fastPeriod = 20
         slowPeriod = 60
-        self._tolerance = d.Decimal(1 + 0.001)
+        self._tolerance = 1 + 0.001
         self.IsUpTrend = False
         self.IsDownTrend = False
         self.SetWarmUp(max(fastPeriod, slowPeriod))
@@ -65,7 +54,7 @@ class FuturesMomentumAlgorithm(QCAlgorithm):
             if (not self.Portfolio.Invested) and self.IsUpTrend:
                 for chain in slice.FuturesChains:
                     # find the front contract expiring no earlier than in 90 days
-                    contracts = filter(lambda x: x.Expiry > self.Time + timedelta(90), chain.Value)
+                    contracts = list(filter(lambda x: x.Expiry > self.Time + timedelta(90), chain.Value))
                     # if there is any contract, trade the front contract
                     if len(contracts) == 0: continue
                     contract = sorted(contracts, key = lambda x: x.Expiry, reverse=True)[0]
@@ -74,7 +63,7 @@ class FuturesMomentumAlgorithm(QCAlgorithm):
             if self.Portfolio.Invested and self.IsDownTrend:
                 self.Liquidate()
 
-    def OnEndOfDay(self):
+    def OnEndOfDay(self, symbol):
         if self.IsUpTrend:
             self.Plot("Indicator Signal", "EOD",1)
         elif self.IsDownTrend:

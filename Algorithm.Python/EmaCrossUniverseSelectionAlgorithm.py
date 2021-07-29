@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,19 +11,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Indicators")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Data import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Indicators import *
+from AlgorithmImports import *
 from System.Collections.Generic import List
-import decimal as d
 
 ### <summary>
 ### In this algorithm we demonstrate how to perform some technical analysis as
@@ -46,7 +35,7 @@ class EmaCrossUniverseSelectionAlgorithm(QCAlgorithm):
         self.UniverseSettings.Leverage = 2
 
         self.coarse_count = 10
-        self.averages = { };
+        self.averages = { }
 
         # this add universe method accepts two parameters:
         # - coarse selection function: accepts an IEnumerable<CoarseFundamental> and returns an IEnumerable<Symbol>
@@ -63,7 +52,7 @@ class EmaCrossUniverseSelectionAlgorithm(QCAlgorithm):
 
             # Updates the SymbolData object with current EOD price
             avg = self.averages[cf.Symbol]
-            avg.update(cf.EndTime, cf.Price)
+            avg.update(cf.EndTime, cf.AdjustedPrice)
 
         # Filter the values of the dict: we only want up-trending securities
         values = list(filter(lambda x: x.is_uptrend, self.averages.values()))
@@ -73,7 +62,7 @@ class EmaCrossUniverseSelectionAlgorithm(QCAlgorithm):
 
         for x in values[:self.coarse_count]:
             self.Log('symbol: ' + str(x.symbol.Value) + '  scale: ' + str(x.scale))
-        
+
         # we need to return only the symbol objects
         return [ x.symbol for x in values[:self.coarse_count] ]
 
@@ -92,7 +81,7 @@ class EmaCrossUniverseSelectionAlgorithm(QCAlgorithm):
 class SymbolData(object):
     def __init__(self, symbol):
         self.symbol = symbol
-        self.tolerance = d.Decimal(1.01)
+        self.tolerance = 1.01
         self.fast = ExponentialMovingAverage(100)
         self.slow = ExponentialMovingAverage(300)
         self.is_uptrend = False
@@ -105,4 +94,4 @@ class SymbolData(object):
             self.is_uptrend = fast > slow * self.tolerance
 
         if self.is_uptrend:
-            self.scale = (fast - slow) / ((fast + slow) / d.Decimal(2.0))
+            self.scale = (fast - slow) / ((fast + slow) / 2.0)

@@ -1,11 +1,11 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 
@@ -25,18 +26,6 @@ namespace QuantConnect.Util
     /// </summary>
     public static class LinqExtensions
     {
-        /// <summary>
-        /// Creates a dictionary multimap from the lookup.
-        /// </summary>
-        /// <typeparam name="K">The key type</typeparam>
-        /// <typeparam name="V">The value type</typeparam>
-        /// <param name="lookup">The ILookup instance to convert to a dictionary</param>
-        /// <returns>A dictionary holding the same data as 'lookup'</returns>
-        public static Dictionary<K, List<V>> ToDictionary<K, V>(this ILookup<K, V> lookup)
-        {
-            return lookup.ToDictionary(grouping => grouping.Key, grouping => grouping.ToList());
-        }
-
         /// <summary>
         /// Creates a dictionary enumerable of key value pairs
         /// </summary>
@@ -64,17 +53,6 @@ namespace QuantConnect.Util
         /// <summary>
         /// Creates a new <see cref="HashSet{T}"/> from the elements in the specified enumerable
         /// </summary>
-        /// <typeparam name="T">The item type in the hash set</typeparam>
-        /// <param name="enumerable">The items to be placed into the enumerable</param>
-        /// <returns>A new <see cref="HashSet{T}"/> containing the items in the enumerable</returns>
-        public static HashSet<T> ToHashSet<T>(this IEnumerable<T> enumerable)
-        {
-            return new HashSet<T>(enumerable);
-        }
-
-        /// <summary>
-        /// Creates a new <see cref="HashSet{T}"/> from the elements in the specified enumerable
-        /// </summary>
         /// <typeparam name="T">The item type of the source enumerable</typeparam>
         /// <typeparam name="TResult">The type of the items in the output <see cref="HashSet{T}"/></typeparam>
         /// <param name="enumerable">The items to be placed into the enumerable</param>
@@ -83,6 +61,45 @@ namespace QuantConnect.Util
         public static HashSet<TResult> ToHashSet<T, TResult>(this IEnumerable<T> enumerable, Func<T, TResult> selector)
         {
             return new HashSet<TResult>(enumerable.Select(selector));
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="IList{T}"/> from the projected elements in the specified enumerable
+        /// </summary>
+        /// <typeparam name="T">The item type of the source enumerable</typeparam>
+        /// <typeparam name="TResult">The type of the items in the output <see cref="List{T}"/></typeparam>
+        /// <param name="enumerable">The items to be placed into the list</param>
+        /// <param name="selector">Selects items from the enumerable to be placed into the <see cref="List{T}"/></param>
+        /// <returns>A new <see cref="List{T}"/> containing the items in the enumerable</returns>
+        public static List<TResult> ToList<T, TResult>(this IEnumerable<T> enumerable, Func<T, TResult> selector)
+        {
+            return enumerable.Select(selector).ToList();
+        }
+
+        /// <summary>
+        /// Creates a new array from the projected elements in the specified enumerable
+        /// </summary>
+        /// <typeparam name="T">The item type of the source enumerable</typeparam>
+        /// <typeparam name="TResult">The type of the items in the output array</typeparam>
+        /// <param name="enumerable">The items to be placed into the array</param>
+        /// <param name="selector">Selects items from the enumerable to be placed into the array</param>
+        /// <returns>A new array containing the items in the enumerable</returns>
+        public static TResult[] ToArray<T, TResult>(this IEnumerable<T> enumerable, Func<T, TResult> selector)
+        {
+            return enumerable.Select(selector).ToArray();
+        }
+
+        /// <summary>
+        /// Creates a new immutable array from the projected elements in the specified enumerable
+        /// </summary>
+        /// <typeparam name="T">The item type of the source enumerable</typeparam>
+        /// <typeparam name="TResult">The type of the items in the output array</typeparam>
+        /// <param name="enumerable">The items to be placed into the array</param>
+        /// <param name="selector">Selects items from the enumerable to be placed into the array</param>
+        /// <returns>A new array containing the items in the enumerable</returns>
+        public static ImmutableArray<TResult> ToImmutableArray<T, TResult>(this IEnumerable<T> enumerable, Func<T, TResult> selector)
+        {
+            return enumerable.Select(selector).ToImmutableArray();
         }
 
         /// <summary>
@@ -106,14 +123,6 @@ namespace QuantConnect.Util
         public static bool IsNullOrEmpty<T>(this IEnumerable<T> enumerable)
         {
             return enumerable == null || !enumerable.Any();
-        }
-
-        /// <summary>
-        /// Performs the specified selector before calling DefaultIfEmpty. This is just short hand for Select(selector).DefaultIfEmpty(defaultValue)
-        /// </summary>
-        public static IEnumerable<TResult> DefaultIfEmpty<T, TResult>(this IEnumerable<T> enumerable, Func<T, TResult> selector, TResult defaultValue = default(TResult))
-        {
-            return enumerable.Select(selector).DefaultIfEmpty(defaultValue);
         }
 
         /// <summary>
@@ -154,11 +163,11 @@ namespace QuantConnect.Util
         {
             if (list == null)
             {
-                throw new ArgumentNullException("list");
+                throw new ArgumentNullException(nameof(list));
             }
             if (comparer == null)
             {
-                throw new ArgumentNullException("comparer");
+                throw new ArgumentNullException(nameof(comparer));
             }
 
             var lower = 0;
@@ -300,6 +309,66 @@ namespace QuantConnect.Util
                     }
                     yield return list;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Determines if there are any differences between the left and right collections.
+        /// This method uses sets to improve performance and also uses lazy evaluation so if a
+        /// difference is found, true is immediately returned and evaluation is halted.
+        /// </summary>
+        /// <typeparam name="T">The item type</typeparam>
+        /// <param name="left">The left set</param>
+        /// <param name="right">The right set</param>
+        /// <returns>True if there are any differences between the two sets, false otherwise</returns>
+        public static bool AreDifferent<T>(this ISet<T> left, ISet<T> right)
+        {
+            return left.Except(right).Any() || right.Except(left).Any();
+        }
+
+        /// <summary>
+        /// Converts an <see cref="IEnumerator{T}"/> to an <see cref="IEnumerable{T}"/>
+        /// </summary>
+        /// <typeparam name="T">Collection element type</typeparam>
+        /// <param name="enumerator">The enumerator to convert to an enumerable</param>
+        /// <returns>An enumerable wrapping the specified enumerator</returns>
+        public static IEnumerable<T> AsEnumerable<T>(this IEnumerator<T> enumerator)
+        {
+            using (enumerator)
+            {
+                while (enumerator.MoveNext())
+                {
+                    yield return enumerator.Current;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the value associated with the specified key or provided default value if key is not found.
+        /// </summary>
+        /// <typeparam name="K">The key type</typeparam>
+        /// <typeparam name="V">The value type</typeparam>
+        /// <param name="dictionary">The dictionary instance</param>
+        /// <param name="key">Lookup key</param>
+        /// <param name="defaultValue">Default value</param>
+        /// <returns>Value associated with the specified key or  default value</returns>
+        public static V GetValueOrDefault<K, V>(this IDictionary<K, V> dictionary, K key, V defaultValue = default(V))
+        {
+            V obj;
+            return dictionary.TryGetValue(key, out obj) ? obj : defaultValue;
+        }
+
+        /// <summary>
+        /// Performs an action for each element in collection source
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source">Collection source</param>
+        /// <param name="action">An action to perform</param>
+        public static void DoForEach<T>(this IEnumerable<T> source, Action<T> action)
+        {
+            foreach (var element in source)
+            {
+                action(element);
             }
         }
     }

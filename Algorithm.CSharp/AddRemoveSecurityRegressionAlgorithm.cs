@@ -14,8 +14,10 @@
 */
 
 using System;
+using System.Collections.Generic;
 using QuantConnect.Data.Market;
 using QuantConnect.Orders;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Algorithm.CSharp
 {
@@ -26,7 +28,7 @@ namespace QuantConnect.Algorithm.CSharp
     /// <meta name="tag" content="using data" />
     /// <meta name="tag" content="assets" />
     /// <meta name="tag" content="regression test" />
-    public class AddRemoveSecurityRegressionAlgorithm : QCAlgorithm
+    public class AddRemoveSecurityRegressionAlgorithm : QCAlgorithm, IRegressionAlgorithmDefinition
     {
         private DateTime lastAction;
 
@@ -72,8 +74,8 @@ namespace QuantConnect.Algorithm.CSharp
             }
             else if (Time.DayOfWeek == DayOfWeek.Thursday)
             {
-                RemoveSecurity(_bac);
                 RemoveSecurity(_aig);
+                RemoveSecurity(_bac);
                 lastAction = Time;
             }
         }
@@ -93,5 +95,64 @@ namespace QuantConnect.Algorithm.CSharp
                 Debug(Time + ": Filled: " + Transactions.GetOrderById(orderEvent.OrderId));
             }
         }
+
+        /// <summary>
+        /// This is used by the regression test system to indicate if the open source Lean repository has the required data to run this algorithm.
+        /// </summary>
+        public bool CanRunLocally { get; } = true;
+
+        /// <summary>
+        /// This is used by the regression test system to indicate which languages this algorithm is written in.
+        /// </summary>
+        public Language[] Languages { get; } = { Language.CSharp, Language.Python };
+
+        /// <summary>
+        /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
+        /// </summary>
+        public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
+        {
+            {"Total Trades", "5"},
+            {"Average Win", "0.46%"},
+            {"Average Loss", "0%"},
+            {"Compounding Annual Return", "296.356%"},
+            {"Drawdown", "1.400%"},
+            {"Expectancy", "0"},
+            {"Net Profit", "1.776%"},
+            {"Sharpe Ratio", "13.013"},
+            {"Probabilistic Sharpe Ratio", "80.409%"},
+            {"Loss Rate", "0%"},
+            {"Win Rate", "100%"},
+            {"Profit-Loss Ratio", "0"},
+            {"Alpha", "0.68"},
+            {"Beta", "0.707"},
+            {"Annual Standard Deviation", "0.16"},
+            {"Annual Variance", "0.026"},
+            {"Information Ratio", "1.378"},
+            {"Tracking Error", "0.072"},
+            {"Treynor Ratio", "2.946"},
+            {"Total Fees", "$28.30"},
+            {"Estimated Strategy Capacity", "$4700000.00"},
+            {"Lowest Capacity Asset", "AIG R735QTJ8XC9X"},
+            {"Fitness Score", "0.374"},
+            {"Kelly Criterion Estimate", "0"},
+            {"Kelly Criterion Probability Value", "0"},
+            {"Sortino Ratio", "79228162514264337593543950335"},
+            {"Return Over Maximum Drawdown", "372.086"},
+            {"Portfolio Turnover", "0.374"},
+            {"Total Insights Generated", "0"},
+            {"Total Insights Closed", "0"},
+            {"Total Insights Analysis Completed", "0"},
+            {"Long Insight Count", "0"},
+            {"Short Insight Count", "0"},
+            {"Long/Short Ratio", "100%"},
+            {"Estimated Monthly Alpha Value", "$0"},
+            {"Total Accumulated Estimated Alpha Value", "$0"},
+            {"Mean Population Estimated Insight Value", "$0"},
+            {"Mean Population Direction", "0%"},
+            {"Mean Population Magnitude", "0%"},
+            {"Rolling Averaged Population Direction", "0%"},
+            {"Rolling Averaged Population Magnitude", "0%"},
+            {"OrderListHash", "ac3f4dfcdeb98b488b715412ad2d6c4f"}
+        };
     }
 }

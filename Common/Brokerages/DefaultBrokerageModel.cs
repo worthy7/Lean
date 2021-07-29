@@ -13,8 +13,14 @@
  * limitations under the License.
 */
 
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using QuantConnect.Benchmarks;
+using QuantConnect.Data;
 using QuantConnect.Data.Market;
+using QuantConnect.Data.Shortable;
+using QuantConnect.Interfaces;
 using QuantConnect.Orders;
 using QuantConnect.Orders.Fees;
 using QuantConnect.Orders.Fills;
@@ -41,11 +47,23 @@ namespace QuantConnect.Brokerages
             {SecurityType.Base, Market.USA},
             {SecurityType.Equity, Market.USA},
             {SecurityType.Option, Market.USA},
-            {SecurityType.Future, Market.USA},
-            {SecurityType.Forex, Market.FXCM},
+            {SecurityType.Future, Market.CME},
+            {SecurityType.FutureOption, Market.CME},
+            {SecurityType.Forex, Market.Oanda},
             {SecurityType.Cfd, Market.FXCM},
-            {SecurityType.Crypto, Market.GDAX}
+            {SecurityType.Crypto, Market.GDAX},
+            {SecurityType.Index, Market.USA},
+            {SecurityType.IndexOption, Market.USA}
         }.ToReadOnlyDictionary();
+
+        /// <summary>
+        /// Determines whether the asset you want to short is shortable.
+        /// The default is set to <see cref="NullShortableProvider"/>,
+        /// which allows for infinite shorting of any asset. You can limit the
+        /// quantity you can short for an asset class by setting this variable to
+        /// your own implementation of <see cref="IShortableProvider"/>.
+        /// </summary>
+        protected IShortableProvider ShortableProvider { get; set; }
 
         /// <summary>
         /// Gets or sets the account type used by this model
@@ -55,6 +73,12 @@ namespace QuantConnect.Brokerages
             get;
             private set;
         }
+
+        /// <summary>
+        /// Gets the brokerages model percentage factor used to determine the required unused buying power for the account.
+        /// From 1 to 0. Example: 0 means no unused buying power is required. 0.5 means 50% of the buying power should be left unused.
+        /// </summary>
+        public virtual decimal RequiredFreeBuyingPowerPercent => 0m;
 
         /// <summary>
         /// Gets a map of the default markets to be used for each security type
@@ -72,6 +96,11 @@ namespace QuantConnect.Brokerages
         public DefaultBrokerageModel(AccountType accountType = AccountType.Margin)
         {
             AccountType = accountType;
+
+            // Shortable provider, responsible for loading the data that indicates how much
+            // quantity we can short for a given asset. The NullShortableProvider default will
+            // allow for infinite quantities of any asset to be shorted.
+            ShortableProvider = new NullShortableProvider();
         }
 
         /// <summary>
@@ -167,10 +196,24 @@ namespace QuantConnect.Brokerages
                 case SecurityType.Base:
                 case SecurityType.Commodity:
                 case SecurityType.Option:
+                case SecurityType.FutureOption:
                 case SecurityType.Future:
+                case SecurityType.Index:
+                case SecurityType.IndexOption:
                 default:
                     return 1m;
             }
+        }
+
+        /// <summary>
+        /// Get the benchmark for this model
+        /// </summary>
+        /// <param name="securities">SecurityService to create the security with if needed</param>
+        /// <returns>The benchmark for this brokerage</returns>
+        public virtual IBenchmark GetBenchmark(SecurityManager securities)
+        {
+            var symbol = Symbol.Create("SPY", SecurityType.Equity, Market.USA);
+            return SecurityBenchmark.CreateInstance(securities, symbol);
         }
 
         /// <summary>
@@ -180,6 +223,34 @@ namespace QuantConnect.Brokerages
         /// <returns>The new fill model for this brokerage</returns>
         public virtual IFillModel GetFillModel(Security security)
         {
+            switch (security.Type)
+            {
+                case SecurityType.Base:
+                    break;
+                case SecurityType.Equity:
+                    return new EquityFillModel();
+                case SecurityType.Option:
+                    break;
+                case SecurityType.FutureOption:
+                    break;
+                case SecurityType.Commodity:
+                    break;
+                case SecurityType.Forex:
+                    break;
+                case SecurityType.Future:
+                    break;
+                case SecurityType.Cfd:
+                    break;
+                case SecurityType.Crypto:
+                    break;
+                case SecurityType.Index:
+                    break;
+                case SecurityType.IndexOption:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException($"{GetType().Name}.GetFillModel: Invalid security type {security.Type}");
+            }
+
             return new ImmediateFillModel();
         }
 
@@ -196,11 +267,13 @@ namespace QuantConnect.Brokerages
                 case SecurityType.Forex:
                 case SecurityType.Cfd:
                 case SecurityType.Crypto:
+                case SecurityType.Index:
                     return new ConstantFeeModel(0m);
 
                 case SecurityType.Equity:
                 case SecurityType.Option:
                 case SecurityType.Future:
+                case SecurityType.FutureOption:
                     return new InteractiveBrokersFeeModel();
 
                 case SecurityType.Commodity:
@@ -220,6 +293,7 @@ namespace QuantConnect.Brokerages
             {
                 case SecurityType.Base:
                 case SecurityType.Equity:
+                case SecurityType.Index:
                     return new ConstantSlippageModel(0);
 
                 case SecurityType.Forex:
@@ -229,6 +303,7 @@ namespace QuantConnect.Brokerages
 
                 case SecurityType.Commodity:
                 case SecurityType.Option:
+                case SecurityType.FutureOption:
                 case SecurityType.Future:
                 default:
                     return new ConstantSlippageModel(0);
@@ -239,11 +314,10 @@ namespace QuantConnect.Brokerages
         /// Gets a new settlement model for the security
         /// </summary>
         /// <param name="security">The security to get a settlement model for</param>
-        /// <param name="accountType">The account type</param>
         /// <returns>The settlement model for this brokerage</returns>
-        public virtual ISettlementModel GetSettlementModel(Security security, AccountType accountType)
+        public virtual ISettlementModel GetSettlementModel(Security security)
         {
-            if (accountType == AccountType.Cash)
+            if (AccountType == AccountType.Cash)
             {
                 switch (security.Type)
                 {
@@ -259,32 +333,73 @@ namespace QuantConnect.Brokerages
         }
 
         /// <summary>
+        /// Gets a new settlement model for the security
+        /// </summary>
+        /// <param name="security">The security to get a settlement model for</param>
+        /// <param name="accountType">The account type</param>
+        /// <returns>The settlement model for this brokerage</returns>
+        [Obsolete("Flagged deprecated and will remove December 1st 2018")]
+        public ISettlementModel GetSettlementModel(Security security, AccountType accountType)
+        {
+            return GetSettlementModel(security);
+        }
+
+        /// <summary>
         /// Gets a new buying power model for the security, returning the default model with the security's configured leverage.
         /// For cash accounts, leverage = 1 is used.
         /// </summary>
         /// <param name="security">The security to get a buying power model for</param>
-        /// <param name="accountType">The account type</param>
         /// <returns>The buying power model for this brokerage/security</returns>
-        public virtual IBuyingPowerModel GetBuyingPowerModel(Security security, AccountType accountType)
+        public virtual IBuyingPowerModel GetBuyingPowerModel(Security security)
         {
+            var leverage = GetLeverage(security);
+            IBuyingPowerModel model;
+
             switch (security.Type)
             {
                 case SecurityType.Crypto:
-                    return new CashBuyingPowerModel();
-
+                    model = new CashBuyingPowerModel();
+                    break;
                 case SecurityType.Forex:
                 case SecurityType.Cfd:
-                    return new SecurityMarginModel(50m);
-
+                    model = new SecurityMarginModel(leverage, RequiredFreeBuyingPowerPercent);
+                    break;
                 case SecurityType.Option:
-                    return new OptionMarginModel();
-
+                    model = new OptionMarginModel(RequiredFreeBuyingPowerPercent);
+                    break;
+                case SecurityType.FutureOption:
+                    model = new FuturesOptionsMarginModel(RequiredFreeBuyingPowerPercent, (Option)security);
+                    break;
                 case SecurityType.Future:
-                    return new FutureMarginModel();
-
+                    model = new FutureMarginModel(RequiredFreeBuyingPowerPercent, security);
+                    break;
+                case SecurityType.Index:
                 default:
-                    return new SecurityMarginModel(2m);
+                    model = new SecurityMarginModel(leverage, RequiredFreeBuyingPowerPercent);
+                    break;
             }
+            return model;
+        }
+
+        /// <summary>
+        /// Gets the shortable provider
+        /// </summary>
+        /// <returns>Shortable provider</returns>
+        public virtual IShortableProvider GetShortableProvider()
+        {
+            return ShortableProvider;
+        }
+
+        /// <summary>
+        /// Gets a new buying power model for the security
+        /// </summary>
+        /// <param name="security">The security to get a buying power model for</param>
+        /// <param name="accountType">The account type</param>
+        /// <returns>The buying power model for this brokerage/security</returns>
+        [Obsolete("Flagged deprecated and will remove December 1st 2018")]
+        public IBuyingPowerModel GetBuyingPowerModel(Security security, AccountType accountType)
+        {
+            return GetBuyingPowerModel(security);
         }
     }
 }

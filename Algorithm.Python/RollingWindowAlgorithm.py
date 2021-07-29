@@ -1,4 +1,4 @@
-﻿# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
 # Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,16 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Indicators import *
-from QuantConnect.Data.Market import TradeBar
+from AlgorithmImports import *
 
 ### <summary>
 ### Using rolling windows for efficient storage of historical data; which automatically clears after a period of time.
@@ -46,7 +37,8 @@ class RollingWindowAlgorithm(QCAlgorithm):
         self.window = RollingWindow[TradeBar](2)    # For other security types, use QuoteBar
 
         # Creates an indicator and adds to a rolling window when it is updated
-        self.SMA("SPY", 5).Updated += self.SmaUpdated
+        self.sma = self.SMA("SPY", 5)
+        self.sma.Updated += self.SmaUpdated
         self.smaWin = RollingWindow[IndicatorDataPoint](5)
 
 

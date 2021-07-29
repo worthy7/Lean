@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -19,9 +19,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
-using NodaTime;
 using QuantConnect.Data;
-using QuantConnect.Util;
+using QuantConnect.Interfaces;
 
 namespace QuantConnect.Securities
 {
@@ -29,17 +28,18 @@ namespace QuantConnect.Securities
     /// Enumerable security management class for grouping security objects into an array and providing any common properties.
     /// </summary>
     /// <remarks>Implements IDictionary for the index searching of securities by symbol</remarks>
-    public class SecurityManager : IDictionary<Symbol, Security>, INotifyCollectionChanged
+    public class SecurityManager : ExtendedDictionary<Security>, IDictionary<Symbol, Security>, INotifyCollectionChanged
     {
         /// <summary>
         /// Event fired when a security is added or removed from this collection
         /// </summary>
         public event NotifyCollectionChangedEventHandler CollectionChanged;
 
-        private readonly TimeKeeper _timeKeeper;
+        private readonly ITimeKeeper _timeKeeper;
 
         //Internal dictionary implementation:
         private readonly ConcurrentDictionary<Symbol, Security> _securityManager;
+        private SecurityService _securityService;
 
         /// <summary>
         /// Gets the most recent time this manager was updated
@@ -53,7 +53,7 @@ namespace QuantConnect.Securities
         /// Initialise the algorithm security manager with two empty dictionaries
         /// </summary>
         /// <param name="timeKeeper"></param>
-        public SecurityManager(TimeKeeper timeKeeper)
+        public SecurityManager(ITimeKeeper timeKeeper)
         {
             _timeKeeper = timeKeeper;
             _securityManager = new ConcurrentDictionary<Symbol, Security>();
@@ -98,7 +98,7 @@ namespace QuantConnect.Securities
         /// Clear the securities array to delete all the portfolio and asset information.
         /// </summary>
         /// <remarks>IDictionary implementation</remarks>
-        public void Clear()
+        public override void Clear()
         {
             _securityManager.Clear();
         }
@@ -143,12 +143,12 @@ namespace QuantConnect.Securities
         public int Count => _securityManager.Skip(0).Count();
 
         /// <summary>
-        /// Flag indicating if the internal arrray is read only.
+        /// Flag indicating if the internal array is read only.
         /// </summary>
         /// <remarks>IDictionary implementation</remarks>
-        public bool IsReadOnly
+        public override bool IsReadOnly
         {
-            get { return false;  }
+            get { return false; }
         }
 
         /// <summary>
@@ -167,7 +167,7 @@ namespace QuantConnect.Securities
         /// </summary>
         /// <param name="symbol">Symbol we're searching for</param>
         /// <returns>true success</returns>
-        public bool Remove(Symbol symbol)
+        public override bool Remove(Symbol symbol)
         {
             Security security;
             if (_securityManager.TryRemove(symbol, out security))
@@ -191,10 +191,26 @@ namespace QuantConnect.Securities
         /// <param name="security">Output Security object</param>
         /// <remarks>IDictionary implementation</remarks>
         /// <returns>True on successfully locating the security object</returns>
-        public bool TryGetValue(Symbol symbol, out Security security)
+        public override bool TryGetValue(Symbol symbol, out Security security)
         {
             return _securityManager.TryGetValue(symbol, out security);
         }
+
+        /// <summary>
+        /// Gets an <see cref="T:System.Collections.Generic.ICollection`1"/> containing the Symbol objects of the <see cref="T:System.Collections.Generic.IDictionary`2"/>.
+        /// </summary>
+        /// <returns>
+        /// An <see cref="T:System.Collections.Generic.ICollection`1"/> containing the Symbol objects of the object that implements <see cref="T:System.Collections.Generic.IDictionary`2"/>.
+        /// </returns>
+        protected override IEnumerable<Symbol> GetKeys => _securityManager.Select(pair => pair.Key);
+
+        /// <summary>
+        /// Gets an <see cref="T:System.Collections.Generic.ICollection`1"/> containing the values in the <see cref="T:System.Collections.Generic.IDictionary`2"/>.
+        /// </summary>
+        /// <returns>
+        /// An <see cref="T:System.Collections.Generic.ICollection`1"/> containing the values in the object that implements <see cref="T:System.Collections.Generic.IDictionary`2"/>.
+        /// </returns>
+        protected override IEnumerable<Security> GetValues => _securityManager.Select(pair => pair.Value);
 
         /// <summary>
         /// Get a list of the security objects for this collection.
@@ -228,22 +244,23 @@ namespace QuantConnect.Securities
         /// <remarks>IDictionary implementation</remarks>
         /// <param name="symbol">Symbol object indexer</param>
         /// <returns>Security</returns>
-        public Security this[Symbol symbol]
+        public override Security this[Symbol symbol]
         {
             get
             {
-                if (!_securityManager.ContainsKey(symbol))
+                Security security;
+                if (!_securityManager.TryGetValue(symbol, out security))
                 {
-                    throw new Exception(string.Format("This asset symbol ({0}) was not found in your security list. Please add this security or check it exists before using it with 'Securities.ContainsKey(\"{1}\")'", symbol, SymbolCache.GetTicker(symbol)));
+                    throw new KeyNotFoundException($"This asset symbol ({symbol}) was not found in your security list. Please add this security or check it exists before using it with 'Securities.ContainsKey(\"{SymbolCache.GetTicker(symbol)}\")'");
                 }
-                return _securityManager[symbol];
+                return security;
             }
             set
             {
                 Security existing;
                 if (_securityManager.TryGetValue(symbol, out existing) && existing != value)
                 {
-                    throw new ArgumentException("Unable to over write existing Security: " + symbol.ToString());
+                    throw new ArgumentException($"Unable to over write existing Security: {symbol}");
                 }
 
                 // no security exists for the specified symbol key, add it now
@@ -255,255 +272,61 @@ namespace QuantConnect.Securities
         }
 
         /// <summary>
-        /// Indexer method for the security manager to access the securities objects by their symbol.
-        /// </summary>
-        /// <remarks>IDictionary implementation</remarks>
-        /// <param name="ticker">string ticker symbol indexer</param>
-        /// <returns>Security</returns>
-        public Security this[string ticker]
-        {
-            get
-            {
-                Symbol symbol;
-                if (!SymbolCache.TryGetSymbol(ticker, out symbol))
-                {
-                    throw new Exception(string.Format("This asset symbol ({0}) was not found in your security list. Please add this security or check it exists before using it with 'Securities.ContainsKey(\"{0}\")'", ticker));
-                }
-                return this[symbol];
-            }
-            set
-            {
-                Symbol symbol;
-                if (!SymbolCache.TryGetSymbol(ticker, out symbol))
-                {
-                    throw new Exception(string.Format("This asset symbol ({0}) was not found in your security list. Please add this security or check it exists before using it with 'Securities.ContainsKey(\"{0}\")'", ticker));
-                }
-                this[symbol] = value;
-            }
-        }
-
-        /// <summary>
         /// Event invocator for the <see cref="CollectionChanged"/> event
         /// </summary>
         /// <param name="changedEventArgs">Event arguments for the <see cref="CollectionChanged"/> event</param>
         protected virtual void OnCollectionChanged(NotifyCollectionChangedEventArgs changedEventArgs)
         {
-            var handler = CollectionChanged;
-            if (handler != null) handler(this, changedEventArgs);
+            CollectionChanged?.Invoke(this, changedEventArgs);
         }
 
         /// <summary>
-        /// Creates a security and matching configuration. This applies the default leverage if
-        /// leverage is less than or equal to zero.
-        /// This method also add the new symbol mapping to the <see cref="SymbolCache"/>
+        /// Sets the Security Service to be used
         /// </summary>
-        public static Security CreateSecurity(List<Tuple<Type, TickType>> subscriptionDataTypes,
-            SecurityPortfolioManager securityPortfolioManager,
-            SubscriptionManager subscriptionManager,
-            SecurityExchangeHours exchangeHours,
-            DateTimeZone dataTimeZone,
-            SymbolProperties symbolProperties,
-            ISecurityInitializer securityInitializer,
-            Symbol symbol,
-            Resolution resolution,
-            bool fillDataForward,
-            decimal leverage,
-            bool extendedMarketHours,
-            bool isInternalFeed,
-            bool isCustomData,
-            bool isLiveMode,
-            bool addToSymbolCache = true,
-            bool isFilteredSubscription = true)
+        public void SetSecurityService(SecurityService securityService)
         {
-            if (!subscriptionDataTypes.Any())
-            {
-                throw new ArgumentNullException(nameof(subscriptionDataTypes), "At least one type needed to create security");
-            }
-
-            // add the symbol to our cache
-            if (addToSymbolCache) SymbolCache.Set(symbol.Value, symbol);
-
-            // Add the symbol to Data Manager -- generate unified data streams for algorithm events
-            var configList = new SubscriptionDataConfigList(symbol);
-            configList.AddRange(from subscriptionDataType
-                                in subscriptionDataTypes
-                                let dataType = subscriptionDataType.Item1
-                                let tickType = subscriptionDataType.Item2
-                                select subscriptionManager.Add(dataType, tickType,
-                                                               symbol, resolution, dataTimeZone,
-                                                               exchangeHours.TimeZone, isCustomData,
-                                                               fillDataForward, extendedMarketHours,
-                                                               isInternalFeed, isFilteredSubscription));
-
-            // verify the cash book is in a ready state
-            var quoteCurrency = symbolProperties.QuoteCurrency;
-            if (!securityPortfolioManager.CashBook.ContainsKey(quoteCurrency))
-            {
-                // since we have none it's safe to say the conversion is zero
-                securityPortfolioManager.CashBook.Add(quoteCurrency, 0, 0);
-            }
-            if (symbol.ID.SecurityType == SecurityType.Forex || symbol.ID.SecurityType == SecurityType.Crypto)
-            {
-                // decompose the symbol into each currency pair
-                string baseCurrency;
-                Forex.Forex.DecomposeCurrencyPair(symbol.Value, out baseCurrency, out quoteCurrency);
-
-                if (!securityPortfolioManager.CashBook.ContainsKey(baseCurrency))
-                {
-                    // since we have none it's safe to say the conversion is zero
-                    securityPortfolioManager.CashBook.Add(baseCurrency, 0, 0);
-                }
-                if (!securityPortfolioManager.CashBook.ContainsKey(quoteCurrency))
-                {
-                    // since we have none it's safe to say the conversion is zero
-                    securityPortfolioManager.CashBook.Add(quoteCurrency, 0, 0);
-                }
-            }
-
-            var quoteCash = securityPortfolioManager.CashBook[symbolProperties.QuoteCurrency];
-
-            Security security;
-            switch (configList.Symbol.ID.SecurityType)
-            {
-                case SecurityType.Equity:
-                    security = new Equity.Equity(symbol, exchangeHours, quoteCash, symbolProperties);
-                    break;
-
-                case SecurityType.Option:
-                    if (addToSymbolCache) SymbolCache.Set(symbol.Underlying.Value, symbol.Underlying);
-                    configList.SetDataNormalizationMode(DataNormalizationMode.Raw);
-                    security = new Option.Option(symbol, exchangeHours, securityPortfolioManager.CashBook[CashBook.AccountCurrency], new Option.OptionSymbolProperties(symbolProperties));
-                    break;
-
-                case SecurityType.Future:
-                    configList.SetDataNormalizationMode(DataNormalizationMode.Raw);
-                    security = new Future.Future(symbol, exchangeHours, securityPortfolioManager.CashBook[CashBook.AccountCurrency], symbolProperties);
-                    break;
-
-                case SecurityType.Forex:
-                    security = new Forex.Forex(symbol, exchangeHours, quoteCash, symbolProperties);
-                    break;
-
-                case SecurityType.Cfd:
-                    security = new Cfd.Cfd(symbol, exchangeHours, quoteCash, symbolProperties);
-                    break;
-
-                case SecurityType.Crypto:
-                    security = new Crypto.Crypto(symbol, exchangeHours, quoteCash, symbolProperties);
-                    break;
-
-                default:
-                case SecurityType.Base:
-                    security = new Security(symbol, exchangeHours, quoteCash, symbolProperties);
-                    break;
-            }
-
-            // if we're just creating this security and it only has an internal
-            // feed, mark it as non-tradable since the user didn't request this data
-            if (!configList.IsInternalFeed)
-            {
-                security.IsTradable = true;
-            }
-
-            security.AddData(configList);
-
-            // invoke the security initializer
-            securityInitializer.Initialize(security);
-
-            // if leverage was specified then apply to security after the initializer has run, parameters of this
-            // method take precedence over the intializer
-            if (leverage > 0)
-            {
-                security.SetLeverage(leverage);
-            }
-
-            // In live mode, equity assumes specific price variation model
-            if (isLiveMode && security.Type == SecurityType.Equity)
-            {
-                security.PriceVariationModel = new EquityPriceVariationModel();
-            }
-
-            return security;
+            _securityService = securityService;
         }
 
         /// <summary>
-        /// Creates a security and matching configuration. This applies the default leverage if
-        /// leverage is less than or equal to zero.
-        /// This method also add the new symbol mapping to the <see cref="SymbolCache"/>
+        /// Creates a new security
         /// </summary>
-        public static Security CreateSecurity(Type dataType,
-            SecurityPortfolioManager securityPortfolioManager,
-            SubscriptionManager subscriptionManager,
-            SecurityExchangeHours exchangeHours,
-            DateTimeZone dataTimeZone,
-            SymbolProperties symbolProperties,
-            ISecurityInitializer securityInitializer,
+        /// <remarks>Following the obsoletion of Security.Subscriptions,
+        /// both overloads will be merged removing <see cref="SubscriptionDataConfig"/> arguments</remarks>
+        public Security CreateSecurity(
             Symbol symbol,
-            Resolution resolution,
-            bool fillDataForward,
-            decimal leverage,
-            bool extendedMarketHours,
-            bool isInternalFeed,
-            bool isCustomData,
-            bool isLiveMode,
+            List<SubscriptionDataConfig> subscriptionDataConfigList,
+            decimal leverage = 0,
             bool addToSymbolCache = true,
-            bool isFilteredSubscription = true)
+            Security underlying = null)
         {
-            return CreateSecurity(
-                new List<Tuple<Type, TickType>>
-                {
-                    new Tuple<Type, TickType>(dataType, LeanData.GetCommonTickTypeForCommonDataTypes(dataType, symbol.SecurityType))
-                },
-                securityPortfolioManager,
-                subscriptionManager,
-                exchangeHours,
-                dataTimeZone,
-                symbolProperties,
-                securityInitializer,
-                symbol,
-                resolution,
-                fillDataForward,
-                leverage,
-                extendedMarketHours,
-                isInternalFeed,
-                isCustomData,
-                isLiveMode,
-                addToSymbolCache,
-                isFilteredSubscription);
+            return _securityService.CreateSecurity(symbol, subscriptionDataConfigList, leverage, addToSymbolCache, underlying);
         }
 
+
         /// <summary>
-        /// Creates a security and matching configuration. This applies the default leverage if
-        /// leverage is less than or equal to zero.
-        /// This method also add the new symbol mapping to the <see cref="SymbolCache"/>
+        /// Creates a new security
         /// </summary>
-        public static Security CreateSecurity(SecurityPortfolioManager securityPortfolioManager,
-            SubscriptionManager subscriptionManager,
-            MarketHoursDatabase marketHoursDatabase,
-            SymbolPropertiesDatabase symbolPropertiesDatabase,
-            ISecurityInitializer securityInitializer,
+        /// <remarks>Following the obsoletion of Security.Subscriptions,
+        /// both overloads will be merged removing <see cref="SubscriptionDataConfig"/> arguments</remarks>
+        public Security CreateSecurity(
             Symbol symbol,
-            Resolution resolution,
-            bool fillDataForward,
-            decimal leverage,
-            bool extendedMarketHours,
-            bool isInternalFeed,
-            bool isCustomData,
-            bool isLiveMode,
-            bool addToSymbolCache = true
+            SubscriptionDataConfig subscriptionDataConfig,
+            decimal leverage = 0,
+            bool addToSymbolCache = true,
+            Security underlying = null
             )
         {
-            var marketHoursDbEntry = marketHoursDatabase.GetEntry(symbol.ID.Market, symbol, symbol.ID.SecurityType);
-            var exchangeHours = marketHoursDbEntry.ExchangeHours;
+            return _securityService.CreateSecurity(symbol, subscriptionDataConfig, leverage, addToSymbolCache, underlying);
+        }
 
-            var defaultQuoteCurrency = CashBook.AccountCurrency;
-            if (symbol.ID.SecurityType == SecurityType.Forex || symbol.ID.SecurityType == SecurityType.Crypto) defaultQuoteCurrency = symbol.Value.Substring(3);
-            var symbolProperties = symbolPropertiesDatabase.GetSymbolProperties(symbol.ID.Market, symbol, symbol.ID.SecurityType, defaultQuoteCurrency);
-
-            var types = subscriptionManager.LookupSubscriptionConfigDataTypes(symbol.SecurityType, resolution, symbol.IsCanonical());
-
-            return CreateSecurity(types, securityPortfolioManager, subscriptionManager, exchangeHours, marketHoursDbEntry.DataTimeZone, symbolProperties, securityInitializer, symbol, resolution,
-                fillDataForward, leverage, extendedMarketHours, isInternalFeed, isCustomData, isLiveMode, addToSymbolCache);
+        /// <summary>
+        /// Set live mode state of the algorithm
+        /// </summary>
+        /// <param name="isLiveMode">True, live mode is enabled</param>
+        public void SetLiveMode(bool isLiveMode)
+        {
+            _securityService.SetLiveMode(isLiveMode);
         }
     }
 }
