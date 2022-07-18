@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using QuantConnect.Data;
+using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Interfaces;
 using QuantConnect.Securities;
 using QuantConnect.Securities.Future;
@@ -64,6 +65,9 @@ namespace QuantConnect.Algorithm.CSharp
 
             var benchmark = AddEquity("SPY");
             SetBenchmark(benchmark.Symbol);
+
+            var seeder = new FuncSecuritySeeder(GetLastKnownPrices);
+            SetSecurityInitializer(security => seeder.SeedSecurity(security));
         }
 
         /// <summary>
@@ -72,6 +76,15 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="slice">The current slice of data keyed by symbol string</param>
         public override void OnData(Slice slice)
         {
+            foreach (var changedEvent in slice.SymbolChangedEvents.Values)
+            {
+                Debug($"{Time} - SymbolChanged event: {changedEvent}");
+                if (Time.TimeOfDay != TimeSpan.Zero)
+                {
+                    throw new Exception($"{Time} unexpected symbol changed event {changedEvent}!");
+                }
+            }
+
             if (!Portfolio.Invested)
             {
                 foreach(var chain in slice.FutureChains)
@@ -112,6 +125,19 @@ namespace QuantConnect.Algorithm.CSharp
             var maintenanceIntraday = futureMarginModel.MaintenanceIntradayMarginRequirement;
         }
 
+        public override void OnSecuritiesChanged(SecurityChanges changes)
+        {
+            foreach (var addedSecurity in changes.AddedSecurities)
+            {
+                if (addedSecurity.Symbol.SecurityType == SecurityType.Future
+                    && !addedSecurity.Symbol.IsCanonical()
+                    && !addedSecurity.HasData)
+                {
+                    throw new Exception($"Future contracts did not work up as expected: {addedSecurity.Symbol}");
+                }
+            }
+        }
+
         /// <summary>
         /// This is used by the regression test system to indicate if the open source Lean repository has the required data to run this algorithm.
         /// </summary>
@@ -121,6 +147,16 @@ namespace QuantConnect.Algorithm.CSharp
         /// This is used by the regression test system to indicate which languages this algorithm is written in.
         /// </summary>
         public Language[] Languages { get; } = { Language.CSharp, Language.Python };
+
+        /// <summary>
+        /// Data Points count of all timeslices of algorithm
+        /// </summary>
+        public long DataPoints => 203367;
+
+        /// <summary>
+        /// Data Points count of the algorithm history
+        /// </summary>
+        public int AlgorithmHistoryDataPoints => 518;
 
         /// <summary>
         /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
@@ -134,18 +170,18 @@ namespace QuantConnect.Algorithm.CSharp
             {"Drawdown", "13.500%"},
             {"Expectancy", "-0.818"},
             {"Net Profit", "-13.517%"},
-            {"Sharpe Ratio", "-2.678"},
+            {"Sharpe Ratio", "-98.781"},
             {"Probabilistic Sharpe Ratio", "0%"},
             {"Loss Rate", "89%"},
             {"Win Rate", "11%"},
             {"Profit-Loss Ratio", "0.69"},
-            {"Alpha", "4.469"},
-            {"Beta", "-0.961"},
-            {"Annual Standard Deviation", "0.373"},
-            {"Annual Variance", "0.139"},
-            {"Information Ratio", "-13.191"},
-            {"Tracking Error", "0.507"},
-            {"Treynor Ratio", "1.04"},
+            {"Alpha", "-1.676"},
+            {"Beta", "0.042"},
+            {"Annual Standard Deviation", "0.01"},
+            {"Annual Variance", "0"},
+            {"Information Ratio", "-73.981"},
+            {"Tracking Error", "0.233"},
+            {"Treynor Ratio", "-23.975"},
             {"Total Fees", "$15207.00"},
             {"Estimated Strategy Capacity", "$8000.00"},
             {"Lowest Capacity Asset", "GC VOFJUCDY9XNH"},

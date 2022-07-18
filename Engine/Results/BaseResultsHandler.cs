@@ -183,11 +183,6 @@ namespace QuantConnect.Lean.Engine.Results
         protected decimal CumulativeMaxPortfolioValue;
 
         /// <summary>
-        /// Last time the <see cref="IResultHandler.Sample(DateTime, bool)"/> method was called in UTC
-        /// </summary>
-        protected DateTime PreviousUtcSampleTime;
-
-        /// <summary>
         /// Sampling period for timespans between resamples of the charting equity.
         /// </summary>
         /// <remarks>Specifically critical for backtesting since with such long timeframes the sampled data can get extreme.</remarks>
@@ -441,53 +436,36 @@ namespace QuantConnect.Lean.Engine.Results
         /// </summary>
         /// <remarks>Useful so that live trading implementation can freeze the returned value if there is no user exchange open
         /// so we ignore extended market hours updates</remarks>
-        protected virtual decimal GetBenchmarkValue()
+        /// <param name="time">Time to resolve benchmark value at</param>
+        protected virtual decimal GetBenchmarkValue(DateTime time)
         {
-            return Algorithm.Benchmark.Evaluate(PreviousUtcSampleTime).SmartRounding();
+            return Algorithm.Benchmark.Evaluate(time).SmartRounding();
         }
 
         /// <summary>
         /// Samples portfolio equity, benchmark, and daily performance
+        /// Called by scheduled event every night at midnight algorithm time
         /// </summary>
         /// <param name="time">Current UTC time in the AlgorithmManager loop</param>
-        /// <param name="force">Force sampling of equity, benchmark, and performance to be </param>
-        public virtual void Sample(DateTime time, bool force = false)
+        public virtual void Sample(DateTime time)
         {
-            var dayChanged = PreviousUtcSampleTime.Date != time.Date;
+            var currentPortfolioValue = GetPortfolioValue();
+            var portfolioPerformance = DailyPortfolioValue == 0 ? 0 : Math.Round((currentPortfolioValue - DailyPortfolioValue) * 100 / DailyPortfolioValue, 10);
 
-            if (dayChanged || force)
-            {
-                if (force)
-                {
-                    // For any forced sampling, we need to sample at the time we provide to this method.
-                    PreviousUtcSampleTime = time;
-                }
+            // Update our max portfolio value
+            CumulativeMaxPortfolioValue = Math.Max(currentPortfolioValue, CumulativeMaxPortfolioValue);
 
-                var currentPortfolioValue = GetPortfolioValue();
-                var portfolioPerformance = DailyPortfolioValue == 0 ? 0 : Math.Round((currentPortfolioValue - DailyPortfolioValue) * 100 / DailyPortfolioValue, 10);
+            // Sample all our default charts
+            SampleEquity(time, currentPortfolioValue);
+            SampleBenchmark(time, GetBenchmarkValue(time));
+            SamplePerformance(time, portfolioPerformance);
+            SampleDrawdown(time, currentPortfolioValue);
+            SampleSalesVolume(time);
+            SampleExposure(time, currentPortfolioValue);
+            SampleCapacity(time);
 
-                // Update our max portfolio value
-                CumulativeMaxPortfolioValue = Math.Max(currentPortfolioValue, CumulativeMaxPortfolioValue);
-
-                // Sample all our default charts
-                SampleEquity(PreviousUtcSampleTime, currentPortfolioValue);
-                SampleBenchmark(PreviousUtcSampleTime, GetBenchmarkValue());
-                SamplePerformance(PreviousUtcSampleTime, portfolioPerformance);
-                SampleDrawdown(PreviousUtcSampleTime, currentPortfolioValue);
-                SampleSalesVolume(PreviousUtcSampleTime);
-                SampleExposure(PreviousUtcSampleTime, currentPortfolioValue);
-                SampleCapacity(PreviousUtcSampleTime);
-
-                // If the day changed, set the closing portfolio value. Otherwise, we would end up
-                // with skewed statistics if a processing event was forced.
-                if (dayChanged)
-                {
-                    DailyPortfolioValue = currentPortfolioValue;
-                }
-            }
-
-            // this time goes into the sample, we keep him updated because sample is called before we update anything, so the sampled values are from the last call
-            PreviousUtcSampleTime = time;
+            // Update daily portfolio value; works because we only call sample once a day
+            DailyPortfolioValue = currentPortfolioValue;
         }
 
         /// <summary>
@@ -648,12 +626,15 @@ namespace QuantConnect.Lean.Engine.Results
         /// <summary>
         /// Gets the algorithm runtime statistics
         /// </summary>
-        protected Dictionary<string, string> GetAlgorithmRuntimeStatistics(Dictionary<string, string> summary,
-            Dictionary<string, string> runtimeStatistics = null, CapacityEstimate capacityEstimate = null)
+        protected SortedDictionary<string, string> GetAlgorithmRuntimeStatistics(Dictionary<string, string> summary, CapacityEstimate capacityEstimate = null)
         {
-            if (runtimeStatistics == null)
+            var runtimeStatistics = new SortedDictionary<string, string>();
+            lock (RuntimeStatistics)
             {
-                runtimeStatistics = new Dictionary<string, string>();
+                foreach (var pair in RuntimeStatistics)
+                {
+                    runtimeStatistics.Add(pair.Key, pair.Value);
+                }
             }
 
             if (summary.ContainsKey("Probabilistic Sharpe Ratio"))
@@ -665,18 +646,16 @@ namespace QuantConnect.Lean.Engine.Results
                 runtimeStatistics["Probabilistic Sharpe Ratio"] = "0%";
             }
 
-            var accountCurrencySymbol = Currencies.GetCurrencySymbol(Algorithm.AccountCurrency);
-
-            runtimeStatistics["Unrealized"] = accountCurrencySymbol + Algorithm.Portfolio.TotalUnrealizedProfit.ToStringInvariant("N2");
-            runtimeStatistics["Fees"] = $"-{accountCurrencySymbol}{Algorithm.Portfolio.TotalFees.ToStringInvariant("N2")}";
-            runtimeStatistics["Net Profit"] = accountCurrencySymbol + Algorithm.Portfolio.TotalProfit.ToStringInvariant("N2");
+            runtimeStatistics["Unrealized"] = AlgorithmCurrencySymbol + Algorithm.Portfolio.TotalUnrealizedProfit.ToStringInvariant("N2");
+            runtimeStatistics["Fees"] = $"-{AlgorithmCurrencySymbol}{Algorithm.Portfolio.TotalFees.ToStringInvariant("N2")}";
+            runtimeStatistics["Net Profit"] = AlgorithmCurrencySymbol + Algorithm.Portfolio.TotalProfit.ToStringInvariant("N2");
             runtimeStatistics["Return"] = GetNetReturn().ToStringInvariant("P");
-            runtimeStatistics["Equity"] = accountCurrencySymbol + Algorithm.Portfolio.TotalPortfolioValue.ToStringInvariant("N2");
-            runtimeStatistics["Holdings"] = accountCurrencySymbol + Algorithm.Portfolio.TotalHoldingsValue.ToStringInvariant("N2");
-            runtimeStatistics["Volume"] = accountCurrencySymbol + Algorithm.Portfolio.TotalSaleVolume.ToStringInvariant("N2");
+            runtimeStatistics["Equity"] = AlgorithmCurrencySymbol + Algorithm.Portfolio.TotalPortfolioValue.ToStringInvariant("N2");
+            runtimeStatistics["Holdings"] = AlgorithmCurrencySymbol + Algorithm.Portfolio.TotalHoldingsValue.ToStringInvariant("N2");
+            runtimeStatistics["Volume"] = AlgorithmCurrencySymbol + Algorithm.Portfolio.TotalSaleVolume.ToStringInvariant("N2");
             if (capacityEstimate != null)
             {
-                runtimeStatistics["Capacity"] = accountCurrencySymbol + capacityEstimate.Capacity.RoundToSignificantDigits(2).ToFinancialFigures();
+                runtimeStatistics["Capacity"] = AlgorithmCurrencySymbol + capacityEstimate.Capacity.RoundToSignificantDigits(2).ToFinancialFigures();
             }
 
             return runtimeStatistics;
@@ -717,7 +696,7 @@ namespace QuantConnect.Lean.Engine.Results
                     var trades = Algorithm.TradeBuilder.ClosedTrades;
 
                     statisticsResults = StatisticsBuilder.Generate(trades, profitLoss, equity, performance, benchmark,
-                        StartingPortfolioValue, Algorithm.Portfolio.TotalFees, totalTransactions, estimatedStrategyCapacity);
+                        StartingPortfolioValue, Algorithm.Portfolio.TotalFees, totalTransactions, estimatedStrategyCapacity, AlgorithmCurrencySymbol);
                 }
             }
             catch (Exception err)

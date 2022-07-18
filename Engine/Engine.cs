@@ -49,7 +49,6 @@ namespace QuantConnect.Lean.Engine
         private bool _historyStartDateLimitedWarningEmitted;
         private bool _historyNumericalPrecisionLimitedWarningEmitted;
         private readonly bool _liveMode;
-        private readonly Lazy<StackExceptionInterpreter> _exceptionInterpreter;
 
         /// <summary>
         /// Gets the configured system handlers for this engine instance
@@ -72,9 +71,6 @@ namespace QuantConnect.Lean.Engine
             _liveMode = liveMode;
             SystemHandlers = systemHandlers;
             AlgorithmHandlers = algorithmHandlers;
-            // this is slow, so we will do it on demand
-            _exceptionInterpreter = new Lazy<StackExceptionInterpreter>(() =>
-                    StackExceptionInterpreter.CreateFromAssemblies(AppDomain.CurrentDomain.GetAssemblies()));
         }
 
         /// <summary>
@@ -106,7 +102,6 @@ namespace QuantConnect.Lean.Engine
 
                 IBrokerage brokerage = null;
                 DataManager dataManager = null;
-                IDataCacheProvider historyDataCacheProvider = null;
                 var synchronizer = _liveMode ? new LiveSynchronizer() : new Synchronizer();
                 try
                 {
@@ -188,19 +183,14 @@ namespace QuantConnect.Lean.Engine
                     algorithm.Transactions.SetOrderProcessor(AlgorithmHandlers.Transactions);
 
                     // set the history provider before setting up the algorithm
-                    var historyProvider = GetHistoryProvider(job.HistoryProvider);
-                    if (historyProvider is BrokerageHistoryProvider)
-                    {
-                        (historyProvider as BrokerageHistoryProvider).SetBrokerage(brokerage);
-                    }
-
-                    historyDataCacheProvider = new ZipDataCacheProvider(AlgorithmHandlers.DataProvider, isDataEphemeral:_liveMode);
+                    var historyProvider = GetHistoryProvider();
+                    historyProvider.SetBrokerage(brokerage);
                     historyProvider.Initialize(
                         new HistoryProviderInitializeParameters(
                             job,
                             SystemHandlers.Api,
                             AlgorithmHandlers.DataProvider,
-                            historyDataCacheProvider,
+                            AlgorithmHandlers.DataCacheProvider,
                             AlgorithmHandlers.MapFileProvider,
                             AlgorithmHandlers.FactorFileProvider,
                             progress =>
@@ -229,7 +219,7 @@ namespace QuantConnect.Lean.Engine
 
                     //Initialize the internal state of algorithm and job: executes the algorithm.Initialize() method.
                     initializeComplete = AlgorithmHandlers.Setup.Setup(new SetupHandlerParameters(dataManager.UniverseSelection, algorithm, brokerage, job, AlgorithmHandlers.Results,
-                        AlgorithmHandlers.Transactions, AlgorithmHandlers.RealTime, AlgorithmHandlers.ObjectStore, AlgorithmHandlers.DataProvider));
+                        AlgorithmHandlers.Transactions, AlgorithmHandlers.RealTime, AlgorithmHandlers.ObjectStore, AlgorithmHandlers.DataCacheProvider, AlgorithmHandlers.MapFileProvider));
 
                     // set this again now that we've actually added securities
                     AlgorithmHandlers.Results.SetAlgorithm(algorithm, AlgorithmHandlers.Setup.StartingPortfolioValue);
@@ -238,7 +228,7 @@ namespace QuantConnect.Lean.Engine
                     AlgorithmHandlers.Alphas.OnAfterAlgorithmInitialized(algorithm);
 
                     //If there are any reasons it failed, pass these back to the IDE.
-                    if (!initializeComplete || algorithm.ErrorMessages.Count > 0 || AlgorithmHandlers.Setup.Errors.Count > 0)
+                    if (!initializeComplete || AlgorithmHandlers.Setup.Errors.Count > 0)
                     {
                         initializeComplete = false;
                         //Get all the error messages: internal in algorithm and external in setup handler.
@@ -248,8 +238,9 @@ namespace QuantConnect.Lean.Engine
                             var message = e.Message;
                             if (e.InnerException != null)
                             {
-                                var err = _exceptionInterpreter.Value.Interpret(e.InnerException, _exceptionInterpreter.Value);
-                                message += _exceptionInterpreter.Value.GetExceptionMessageHeader(err);
+                                var interpreter = StackExceptionInterpreter.Instance.Value;
+                                var err = interpreter.Interpret(e.InnerException);
+                                message += interpreter.GetExceptionMessageHeader(err);
                             }
                             return message;
                         }));
@@ -321,9 +312,6 @@ namespace QuantConnect.Lean.Engine
                         }
                     };
 
-                    //Send status to user the algorithm is now executing.
-                    AlgorithmHandlers.Results.SendStatusUpdate(AlgorithmStatus.Running);
-
                     // Result manager scanning message queue: (started earlier)
                     AlgorithmHandlers.Results.DebugMessage(
                         $"Launching analysis for {job.AlgorithmId} with LEAN Engine v{Globals.Version}");
@@ -346,15 +334,12 @@ namespace QuantConnect.Lean.Engine
                             }
                             catch (Exception err)
                             {
-                                //Debugging at this level is difficult, stack trace needed.
-                                Log.Error(err);
-                                algorithm.RunTimeError = err;
-                                algorithmManager.SetStatus(AlgorithmStatus.RuntimeError);
+                                algorithm.SetRuntimeError(err, "AlgorithmManager.Run");
                                 return;
                             }
 
                             Log.Trace("Engine.Run(): Exiting Algorithm Manager");
-                        }, job.Controls.RamAllocation, workerThread:workerThread);
+                        }, job.Controls.RamAllocation, workerThread:workerThread, sleepIntervalMillis: algorithm.LiveMode ? 10000 : 1000);
 
                         if (!complete)
                         {
@@ -362,19 +347,17 @@ namespace QuantConnect.Lean.Engine
                             throw new Exception("Failed to complete algorithm within " + AlgorithmHandlers.Setup.MaximumRuntime.ToStringInvariant("F")
                                 + " seconds. Please make it run faster.");
                         }
-
-                        // Algorithm runtime error:
-                        if (algorithm.RunTimeError != null)
-                        {
-                            HandleAlgorithmError(job, algorithm.RunTimeError);
-                        }
                     }
                     catch (Exception err)
                     {
                         //Error running the user algorithm: purge datafeed, send error messages, set algorithm status to failed.
-                        algorithm.RunTimeError = err;
-                        algorithm.SetStatus(AlgorithmStatus.RuntimeError);
-                        HandleAlgorithmError(job, err);
+                        algorithm.SetRuntimeError(err, "Engine Isolator");
+                    }
+
+                    // Algorithm runtime error:
+                    if (algorithm.RunTimeError != null)
+                    {
+                        HandleAlgorithmError(job, algorithm.RunTimeError);
                     }
 
                     // notify the LEAN manager that the algorithm has finished
@@ -447,7 +430,6 @@ namespace QuantConnect.Lean.Engine
                     AlgorithmHandlers.Setup.Dispose();
                 }
 
-                historyDataCacheProvider.DisposeSafely();
                 Log.Trace("Engine.Main(): Analysis Completed and Results Posted.");
             }
             catch (Exception err)
@@ -474,14 +456,10 @@ namespace QuantConnect.Lean.Engine
         /// <param name="err">Error from algorithm stack</param>
         private void HandleAlgorithmError(AlgorithmNodePacket job, Exception err)
         {
-            Log.Error(err, "Breaking out of parent try catch:");
-            if (AlgorithmHandlers.DataFeed != null) AlgorithmHandlers.DataFeed.Exit();
+            AlgorithmHandlers.DataFeed?.Exit();
             if (AlgorithmHandlers.Results != null)
             {
-                // perform exception interpretation
-                err = _exceptionInterpreter.Value.Interpret(err, _exceptionInterpreter.Value);
-
-                var message = "Runtime Error: " + _exceptionInterpreter.Value.GetExceptionMessageHeader(err);
+                var message = $"Runtime Error: {err.Message}";
                 Log.Trace("Engine.Run(): Sending runtime error to user...");
                 AlgorithmHandlers.Results.LogMessage(message);
 
@@ -496,13 +474,9 @@ namespace QuantConnect.Lean.Engine
         /// <summary>
         /// Load the history provider from the Composer
         /// </summary>
-        private IHistoryProvider GetHistoryProvider(string historyProvider)
+        private HistoryProviderManager GetHistoryProvider()
         {
-            if (historyProvider.IsNullOrEmpty())
-            {
-                historyProvider = Config.Get("history-provider", "SubscriptionDataReaderHistoryProvider");
-            }
-            var provider = Composer.Instance.GetExportedValueByTypeName<IHistoryProvider>(historyProvider);
+            var provider = new HistoryProviderManager();
 
             provider.InvalidConfigurationDetected += (sender, args) => { AlgorithmHandlers.Results.ErrorMessage(args.Message); };
             provider.NumericalPrecisionLimited += (sender, args) =>

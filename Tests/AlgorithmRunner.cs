@@ -30,6 +30,7 @@ using QuantConnect.Lean.Engine.Alphas;
 using QuantConnect.Lean.Engine.HistoricalData;
 using QuantConnect.Lean.Engine.Results;
 using QuantConnect.Lean.Engine.Setup;
+using QuantConnect.Lean.Engine.Storage;
 using QuantConnect.Logging;
 using QuantConnect.Orders;
 using QuantConnect.Packets;
@@ -54,7 +55,8 @@ namespace QuantConnect.Tests
             DateTime? startDate = null,
             DateTime? endDate = null,
             string setupHandler = "RegressionSetupHandlerWrapper",
-            decimal? initialCash = null)
+            decimal? initialCash = null,
+            string algorithmLocation = null)
         {
             AlgorithmManager algorithmManager = null;
             var statistics = new Dictionary<string, string>();
@@ -64,6 +66,12 @@ namespace QuantConnect.Tests
             Composer.Instance.Reset();
             SymbolCache.Clear();
             MarketOnCloseOrder.SubmissionTimeBuffer = MarketOnCloseOrder.DefaultSubmissionTimeBuffer;
+
+            // clean up object storage
+            if (Directory.Exists(LocalObjectStore.DefaultObjectStore))
+            {
+                Directory.Delete(LocalObjectStore.DefaultObjectStore, true);
+            }
 
             var ordersLogFile = string.Empty;
             var logFile = $"./regression/{algorithm}.{language.ToLower()}.log";
@@ -79,17 +87,24 @@ namespace QuantConnect.Tests
                 Config.Set("algorithm-type-name", algorithm);
                 Config.Set("live-mode", "false");
                 Config.Set("environment", "");
-                Config.Set("messaging-handler", "QuantConnect.Messaging.Messaging");
+                Config.Set("messaging-handler", "QuantConnect.Tests.RegressionTestMessageHandler");
                 Config.Set("job-queue-handler", "QuantConnect.Queues.JobQueue");
                 Config.Set("setup-handler", setupHandler);
                 Config.Set("history-provider", "RegressionHistoryProviderWrapper");
                 Config.Set("api-handler", "QuantConnect.Api.Api");
                 Config.Set("result-handler", "QuantConnect.Lean.Engine.Results.RegressionResultHandler");
                 Config.Set("algorithm-language", language.ToString());
-                Config.Set("algorithm-location",
-                    language == Language.Python
-                        ? "../../../Algorithm.Python/" + algorithm + ".py"
-                        : "QuantConnect.Algorithm." + language + ".dll");
+                if (string.IsNullOrEmpty(algorithmLocation))
+                {
+                    Config.Set("algorithm-location",
+                        language == Language.Python
+                            ? "../../../Algorithm.Python/" + algorithm + ".py"
+                            : "QuantConnect.Algorithm." + language + ".dll");
+                }
+                else
+                {
+                    Config.Set("algorithm-location", algorithmLocation);
+                }
 
                 // Store initial log variables
                 var initialLogHandler = Log.LogHandler;
@@ -117,7 +132,6 @@ namespace QuantConnect.Tests
                     Log.Trace("{0}: Running " + algorithm + "...", DateTime.UtcNow);
                     Log.Trace("");
 
-
                     // run the algorithm in its own thread
                     var engine = new Lean.Engine.Engine(systemHandlers, algorithmHandlers, false);
                     Task.Factory.StartNew(() =>
@@ -134,6 +148,12 @@ namespace QuantConnect.Tests
                                 job.CashAmount = new CashAmount(initialCash.Value, Currencies.USD);
                             }
                             algorithmManager = new AlgorithmManager(false, job);
+
+                            var regressionTestMessageHandler = systemHandlers.Notify as RegressionTestMessageHandler;
+                            if (regressionTestMessageHandler != null)
+                            {
+                                regressionTestMessageHandler.SetAlgorithmManager(algorithmManager);
+                            }
 
                             systemHandlers.LeanManager.Initialize(systemHandlers, algorithmHandlers, job, algorithmManager);
 
@@ -267,7 +287,8 @@ namespace QuantConnect.Tests
             public override IEnumerable<Slice> GetHistory(IEnumerable<HistoryRequest> requests, DateTimeZone sliceTimeZone)
             {
                 requests = requests.ToList();
-                if (requests.Any(r => RegressionSetupHandlerWrapper.Algorithm.UniverseManager.ContainsKey(r.Symbol)))
+                if (requests.Any(r => RegressionSetupHandlerWrapper.Algorithm.UniverseManager.ContainsKey(r.Symbol)
+                    && (r.Symbol.SecurityType != SecurityType.Future || !r.Symbol.IsCanonical())))
                 {
                     throw new Exception("History requests should not be submitted for universe symbols");
                 }

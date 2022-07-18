@@ -172,31 +172,41 @@ namespace QuantConnect.Algorithm.CSharp
         public Language[] Languages { get; } = { Language.CSharp, Language.Python };
 
         /// <summary>
+        /// Data Points count of all timeslices of algorithm
+        /// </summary>
+        public long DataPoints => 644315;
+
+        /// <summary>
+        /// Data Points count of the algorithm history
+        /// </summary>
+        public int AlgorithmHistoryDataPoints => 0;
+
+        /// <summary>
         /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
         /// </summary>
         public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
         {
             {"Total Trades", "2"},
             {"Average Win", "0%"},
-            {"Average Loss", "-5.12%"},
-            {"Compounding Annual Return", "-10.230%"},
+            {"Average Loss", "-5.11%"},
+            {"Compounding Annual Return", "-10.226%"},
             {"Drawdown", "5.100%"},
             {"Expectancy", "-1"},
-            {"Net Profit", "-5.116%"},
-            {"Sharpe Ratio", "-1.253"},
-            {"Probabilistic Sharpe Ratio", "0.015%"},
+            {"Net Profit", "-5.114%"},
+            {"Sharpe Ratio", "-1.164"},
+            {"Probabilistic Sharpe Ratio", "0.009%"},
             {"Loss Rate", "100%"},
             {"Win Rate", "0%"},
             {"Profit-Loss Ratio", "0"},
-            {"Alpha", "-0.082"},
+            {"Alpha", "-0.07"},
             {"Beta", "0.003"},
-            {"Annual Standard Deviation", "0.065"},
+            {"Annual Standard Deviation", "0.06"},
             {"Annual Variance", "0.004"},
-            {"Information Ratio", "-0.262"},
-            {"Tracking Error", "0.409"},
-            {"Treynor Ratio", "-27.056"},
-            {"Total Fees", "$3.70"},
-            {"Estimated Strategy Capacity", "$360000000.00"},
+            {"Information Ratio", "-0.243"},
+            {"Tracking Error", "0.378"},
+            {"Treynor Ratio", "-23.592"},
+            {"Total Fees", "$1.85"},
+            {"Estimated Strategy Capacity", "$180000000.00"},
             {"Lowest Capacity Asset", "ES 31EL5FBZBMXES|ES XFH59UK0MYO1"},
             {"Fitness Score", "0"},
             {"Kelly Criterion Estimate", "0"},
@@ -217,7 +227,7 @@ namespace QuantConnect.Algorithm.CSharp
             {"Mean Population Magnitude", "0%"},
             {"Rolling Averaged Population Direction", "0%"},
             {"Rolling Averaged Population Magnitude", "0%"},
-            {"OrderListHash", "a35054d03fd2caa0a96cbe12e427e928"}
+            {"OrderListHash", "76a3f4adc886f92b2f996d7e45e77dad"}
         };
     }
 }

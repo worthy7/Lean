@@ -478,6 +478,11 @@ namespace QuantConnect.Orders.Fills
         /// <returns>Order fill information detailing the average price and quantity filled.</returns>
         public virtual OrderEvent MarketOnOpenFill(Security asset, MarketOnOpenOrder order)
         {
+            if (asset.Exchange.Hours.IsMarketAlwaysOpen)
+            {
+                throw new InvalidOperationException($"Market never closes for this symbol {asset.Symbol}, can no submit a {nameof(OrderType.MarketOnOpen)} order.");
+            }
+
             var utcTime = asset.LocalTime.ConvertToUtc(asset.Exchange.TimeZone);
             var fill = new OrderEvent(order, utcTime, OrderFee.Zero);
 
@@ -534,6 +539,11 @@ namespace QuantConnect.Orders.Fills
         /// <returns>Order fill information detailing the average price and quantity filled.</returns>
         public virtual OrderEvent MarketOnCloseFill(Security asset, MarketOnCloseOrder order)
         {
+            if (asset.Exchange.Hours.IsMarketAlwaysOpen)
+            {
+                throw new InvalidOperationException($"Market never closes for this symbol {asset.Symbol}, can no submit a {nameof(OrderType.MarketOnClose)} order.");
+            }
+
             var utcTime = asset.LocalTime.ConvertToUtc(asset.Exchange.TimeZone);
             var fill = new OrderEvent(order, utcTime, OrderFee.Zero);
 
@@ -790,17 +800,7 @@ namespace QuantConnect.Orders.Fills
         /// </summary>
         protected static bool IsExchangeOpen(Security asset, bool isExtendedMarketHours)
         {
-            if (!asset.Exchange.DateTimeIsOpen(asset.LocalTime))
-            {
-                // if we're not open at the current time exactly, check the bar size, this handle large sized bars (hours/days)
-                var currentBar = asset.GetLastData();
-                if (asset.LocalTime.Date != currentBar.EndTime.Date
-                    || !asset.Exchange.IsOpenDuringBar(currentBar.Time, currentBar.EndTime, isExtendedMarketHours))
-                {
-                    return false;
-                }
-            }
-            return true;
+            return asset.IsMarketOpen(isExtendedMarketHours);
         }
     }
 }

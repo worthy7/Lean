@@ -149,6 +149,16 @@ namespace QuantConnect.Algorithm.CSharp
         public Language[] Languages { get; } = { Language.CSharp };
 
         /// <summary>
+        /// Data Points count of all timeslices of algorithm
+        /// </summary>
+        public long DataPoints => 65172;
+
+        /// <summary>
+        /// Data Points count of the algorithm history
+        /// </summary>
+        public int AlgorithmHistoryDataPoints => 0;
+
+        /// <summary>
         /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
         /// </summary>
         public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
@@ -157,7 +167,7 @@ namespace QuantConnect.Algorithm.CSharp
             {"Average Win", "0%"},
             {"Average Loss", "-0.73%"},
             {"Compounding Annual Return", "-81.109%"},
-            {"Drawdown", "0.700%"},
+            {"Drawdown", "1.400%"},
             {"Expectancy", "-1"},
             {"Net Profit", "-1.360%"},
             {"Sharpe Ratio", "0"},
@@ -169,8 +179,8 @@ namespace QuantConnect.Algorithm.CSharp
             {"Beta", "0"},
             {"Annual Standard Deviation", "0"},
             {"Annual Variance", "0"},
-            {"Information Ratio", "-28.344"},
-            {"Tracking Error", "0.201"},
+            {"Information Ratio", "-66.775"},
+            {"Tracking Error", "0.243"},
             {"Treynor Ratio", "0"},
             {"Total Fees", "$1753.80"},
             {"Estimated Strategy Capacity", "$2500000.00"},

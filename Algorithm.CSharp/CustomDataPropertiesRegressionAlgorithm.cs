@@ -107,6 +107,16 @@ namespace QuantConnect.Algorithm.CSharp
         public Language[] Languages { get; } = { Language.CSharp, Language.Python };
 
         /// <summary>
+        /// Data Points count of all timeslices of algorithm
+        /// </summary>
+        public long DataPoints => 10489;
+
+        /// <summary>
+        /// Data Points count of the algorithm history
+        /// </summary>
+        public int AlgorithmHistoryDataPoints => 0;
+
+        /// <summary>
         /// This is used by the regression test system to indicate what the expected statistics are from running the algorithm
         /// </summary>
         public Dictionary<string, string> ExpectedStatistics => new Dictionary<string, string>
@@ -123,13 +133,13 @@ namespace QuantConnect.Algorithm.CSharp
             {"Loss Rate", "0%"},
             {"Win Rate", "0%"},
             {"Profit-Loss Ratio", "0"},
-            {"Alpha", "1.736"},
-            {"Beta", "0.142"},
+            {"Alpha", "1.747"},
+            {"Beta", "0.047"},
             {"Annual Standard Deviation", "0.84"},
             {"Annual Variance", "0.706"},
-            {"Information Ratio", "1.925"},
-            {"Tracking Error", "0.846"},
-            {"Treynor Ratio", "12.334"},
+            {"Information Ratio", "1.922"},
+            {"Tracking Error", "0.848"},
+            {"Treynor Ratio", "37.47"},
             {"Total Fees", "$0.00"},
             {"Estimated Strategy Capacity", "$0"},
             {"Lowest Capacity Asset", "BTC.Bitcoin 2S"},

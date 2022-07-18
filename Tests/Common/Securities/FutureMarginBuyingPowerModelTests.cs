@@ -690,7 +690,7 @@ namespace QuantConnect.Tests.Common.Securities
         [TestCase(Market.CME)]
         [TestCase(Market.ICE)]
         [TestCase(Market.CBOT)]
-        [TestCase(Market.CBOE)]
+        [TestCase(Market.CFE)]
         [TestCase(Market.COMEX)]
         [TestCase(Market.NYMEX)]
         [TestCase(Market.Globex)]
@@ -754,7 +754,7 @@ namespace QuantConnect.Tests.Common.Securities
         [TestCase(Market.CME)]
         [TestCase(Market.ICE)]
         [TestCase(Market.CBOT)]
-        [TestCase(Market.CBOE)]
+        [TestCase(Market.CFE)]
         [TestCase(Market.COMEX)]
         [TestCase(Market.NYMEX)]
         [TestCase(Market.Globex)]
@@ -792,7 +792,7 @@ namespace QuantConnect.Tests.Common.Securities
         [TestCase(Market.CME)]
         [TestCase(Market.ICE)]
         [TestCase(Market.CBOT)]
-        [TestCase(Market.CBOE)]
+        [TestCase(Market.CFE)]
         [TestCase(Market.COMEX)]
         //[TestCase(Market.NYMEX)] NYMEX contracts can have volatile margin requirements, since some are tied to a percentage of the contract's value.
         [TestCase(Market.Globex)]
@@ -826,6 +826,7 @@ namespace QuantConnect.Tests.Common.Securities
                 { "GNF.csv", 10 },
                 { "HO.csv", 1 },
                 { "ME.csv", 1 },
+                { "MSF.csv", 1 },
                 { "NKN.csv", 2 },
                 { "PL.csv", 1 },
                 { "RB.csv", 1 },
@@ -876,7 +877,7 @@ namespace QuantConnect.Tests.Common.Securities
         [TestCase(Market.CME)]
         [TestCase(Market.ICE)]
         [TestCase(Market.CBOT)]
-        [TestCase(Market.CBOE)]
+        [TestCase(Market.CFE)]
         [TestCase(Market.COMEX)]
         [TestCase(Market.NYMEX)]
         [TestCase(Market.Globex)]

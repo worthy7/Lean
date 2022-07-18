@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
+using ProtoBuf;
 using QuantConnect.Data;
 using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Interfaces;
@@ -29,6 +30,7 @@ namespace QuantConnect.Securities
     /// <summary>
     /// Represents a holding of a currency in cash.
     /// </summary>
+    [ProtoContract(SkipConstructor = true)]
     public class Cash
     {
         private decimal _conversionRate;
@@ -59,16 +61,19 @@ namespace QuantConnect.Securities
         /// <summary>
         /// Gets the symbol used to represent this cash
         /// </summary>
+        [ProtoMember(1)]
         public string Symbol { get; }
 
         /// <summary>
         /// Gets or sets the amount of cash held
         /// </summary>
+        [ProtoMember(2)]
         public decimal Amount { get; private set; }
 
         /// <summary>
         /// Gets the conversion rate into account currency
         /// </summary>
+        [ProtoMember(3)]
         public decimal ConversionRate
         {
             get
@@ -96,6 +101,7 @@ namespace QuantConnect.Securities
         /// <summary>
         /// The symbol of the currency, such as $
         /// </summary>
+        [ProtoMember(4)]
         public string CurrencySymbol { get; }
 
         /// <summary>
@@ -153,7 +159,8 @@ namespace QuantConnect.Securities
         /// <param name="amount">The amount to set the quantity to</param>
         public void SetAmount(decimal amount)
         {
-            lock (_locker)
+            // lock can be null when proto deserializing this instance
+            lock (_locker ?? new object())
             {
                 Amount = amount;
             }
@@ -237,8 +244,10 @@ namespace QuantConnect.Securities
             // Special case for crypto markets without direct pairs (They wont be found by the above)
             // This allows us to add cash for "StableCoins" that are 1-1 with our account currency without needing a conversion security.
             // Check out the StableCoinsWithoutPairs static var for those that are missing their 1-1 conversion pairs
-            if (marketMap.ContainsKey(SecurityType.Crypto)
-                && Currencies.StableCoinsWithoutPairs.Contains(QuantConnect.Symbol.Create(Symbol + accountCurrency, SecurityType.Crypto, marketMap[SecurityType.Crypto])))
+            if (marketMap.TryGetValue(SecurityType.Crypto, out var market)
+                && 
+                (Currencies.IsStableCoinWithoutPair(Symbol + accountCurrency, market)
+                || Currencies.IsStableCoinWithoutPair(accountCurrency + Symbol, market)))
             {
                 CurrencyConversion = null;
                 ConversionRate = 1.0m;

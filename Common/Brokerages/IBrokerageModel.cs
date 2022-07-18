@@ -207,6 +207,9 @@ namespace QuantConnect.Brokerages
                 case BrokerageName.Binance:
                     return new BinanceBrokerageModel(accountType);
 
+                case BrokerageName.BinanceUS:
+                    return new BinanceUSBrokerageModel(accountType);
+
                 case BrokerageName.GDAX:
                     return new GDAXBrokerageModel(accountType);
 
@@ -221,6 +224,21 @@ namespace QuantConnect.Brokerages
 
                 case BrokerageName.TradingTechnologies:
                     return new TradingTechnologiesBrokerageModel(accountType);
+                
+                case BrokerageName.Samco:
+                    return new SamcoBrokerageModel(accountType);
+                
+                case BrokerageName.Kraken:
+                    return new KrakenBrokerageModel(accountType);
+                
+                case BrokerageName.Exante:
+                    return new ExanteBrokerageModel(accountType);
+
+                case BrokerageName.FTX:
+                    return new FTXBrokerageModel(accountType);
+
+                case BrokerageName.FTXUS:
+                    return new FTXUSBrokerageModel(accountType);
 
                 default:
                     throw new ArgumentOutOfRangeException(nameof(brokerage), brokerage, null);

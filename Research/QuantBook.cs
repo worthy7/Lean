@@ -23,6 +23,7 @@ using QuantConnect.Indicators;
 using QuantConnect.Interfaces;
 using QuantConnect.Lean.Engine;
 using QuantConnect.Lean.Engine.DataFeeds;
+using QuantConnect.Lean.Engine.HistoricalData;
 using QuantConnect.Securities;
 using QuantConnect.Securities.Future;
 using QuantConnect.Securities.Option;
@@ -33,7 +34,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using QuantConnect.Data.UniverseSelection;
-using QuantConnect.Logging;
 using QuantConnect.Packets;
 using QuantConnect.Lean.Engine.DataFeeds.Enumerators.Factories;
 using System.Threading.Tasks;
@@ -52,15 +52,13 @@ namespace QuantConnect.Research
 
         static QuantBook()
         {
-            Logging.Log.LogHandler =
-                Composer.Instance.GetExportedValueByTypeName<ILogHandler>(Config.Get("log-handler", "CompositeLogHandler"));
-
             //Determine if we are in a Python Notebook
             try
             {
+                PythonEngine.Initialize();
                 using (Py.GIL())
                 {
-                    var isPython = PythonEngine.ModuleFromString(Guid.NewGuid().ToString(),
+                    var isPython = PyModule.FromString(Guid.NewGuid().ToString(),
                         "try:\n" +
                         "   import IPython\n" +
                         "   def IsPythonNotebook():\n" +
@@ -138,7 +136,7 @@ namespace QuantConnect.Research
                     Version = Globals.Version
                 });
 
-                algorithmHandlers.ObjectStore.Initialize("QuantBook",
+                algorithmHandlers.ObjectStore.Initialize(Config.Get("research-object-store-name", "QuantBook"),
                     Config.GetInt("job-user-id"),
                     Config.GetInt("project-id"),
                     Config.Get("api-access-token"),
@@ -175,7 +173,7 @@ namespace QuantConnect.Research
                         algorithmHandlers.DataPermissionsManager));
 
                 var mapFileProvider = algorithmHandlers.MapFileProvider;
-                HistoryProvider = composer.GetExportedValueByTypeName<IHistoryProvider>(Config.Get("history-provider", "SubscriptionDataReaderHistoryProvider"));
+                HistoryProvider = new HistoryProviderManager();
                 HistoryProvider.Initialize(
                     new HistoryProviderInitializeParameters(
                         null,
@@ -190,8 +188,8 @@ namespace QuantConnect.Research
                     )
                 );
 
-                SetOptionChainProvider(new CachingOptionChainProvider(new BacktestingOptionChainProvider(_dataProvider)));
-                SetFutureChainProvider(new CachingFutureChainProvider(new BacktestingFutureChainProvider(_dataProvider)));
+                SetOptionChainProvider(new CachingOptionChainProvider(new BacktestingOptionChainProvider(_dataCacheProvider, mapFileProvider)));
+                SetFutureChainProvider(new CachingFutureChainProvider(new BacktestingFutureChainProvider(_dataCacheProvider)));
             }
             catch (Exception exception)
             {

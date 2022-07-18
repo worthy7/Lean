@@ -11,26 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clr import AddReference
-AddReference("System")
-AddReference("QuantConnect.Algorithm")
-AddReference("QuantConnect.Common")
-AddReference("QuantConnect.Logging")
-AddReference("QuantConnect.Indicators")
-
-from System import *
-from QuantConnect import *
-from QuantConnect.Indicators import *
-from QuantConnect.Algorithm import *
-from QuantConnect.Logging import Log
-from QuantConnect.Algorithm.Framework import *
-from QuantConnect.Algorithm.Framework.Alphas import *
-from QuantConnect.Algorithm.Framework.Portfolio import *
+from AlgorithmImports import *
 from Portfolio.MaximumSharpeRatioPortfolioOptimizer import MaximumSharpeRatioPortfolioOptimizer
-from datetime import datetime, timedelta
 from itertools import groupby
-import pandas as pd
-import numpy as np
 from numpy import dot, transpose
 from numpy.linalg import inv
 
@@ -68,6 +51,7 @@ class BlackLittermanOptimizationPortfolioConstructionModel(PortfolioConstruction
             risk_free_rate(float): The risk free rate
             delta(float): The risk aversion coeffficient of the market portfolio
             tau(float): The model parameter indicating the uncertainty of the CAPM prior"""
+        super().__init__()
         self.lookback = lookback
         self.period = period
         self.resolution = resolution
